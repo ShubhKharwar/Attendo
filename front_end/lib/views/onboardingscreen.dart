@@ -5,26 +5,56 @@ import 'loginview.dart';
 class OnboardingScreen extends StatelessWidget {
   const OnboardingScreen({super.key});
 
-  Future<void> _navigateToHome(BuildContext context) async {
+  Future<void> _navigateToLogin(BuildContext context) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('onboarding_complete', false); // Use false to indicate completion
+    await prefs.setBool('onboarding_complete', false);
 
     if (context.mounted) {
       Navigator.of(context).pushReplacement(
         PageRouteBuilder(
-          pageBuilder: (context, animation, secondaryAnimation) => const LoginScreen(),
+          pageBuilder: (context, animation, secondaryAnimation) => const LoginView(),
+          // Slower duration for a smoother feel
+          transitionDuration: const Duration(milliseconds: 800),
           transitionsBuilder: (context, animation, secondaryAnimation, child) {
-            // Use a FadeTransition for a smooth fade-in
-            return FadeTransition(
-              opacity: animation,
+            const begin = Offset(1.0, 0.0);
+            const end = Offset.zero;
+            // A cubic curve provides a more pronounced ease-in and ease-out effect
+            const curve = Curves.easeInOutCubic;
+
+            final tween = Tween(begin: begin, end: end).chain(CurveTween(curve: curve));
+
+            return SlideTransition(
+              position: animation.drive(tween),
               child: child,
             );
           },
-          // You can adjust the duration to make the transition faster or slower
-          transitionDuration: const Duration(milliseconds: 700),
         ),
       );
     }
+  }
+
+  // Helper widget for the progress bar
+  Widget _buildProgressBar(AlignmentGeometry alignment) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 40.0, vertical: 20.0),
+      child: Container(
+        height: 8,
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.3),
+          borderRadius: BorderRadius.circular(4),
+        ),
+        // This alignment is what "moves" the bar
+        alignment: alignment,
+        child: Container(
+          width: 100,
+          height: 8,
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(4),
+          ),
+        ),
+      ),
+    );
   }
 
   @override
@@ -49,31 +79,18 @@ class OnboardingScreen extends StatelessWidget {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 40.0, vertical: 20.0),
-                    child: Container(
-                      height: 8,
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.3),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      alignment: Alignment.centerLeft,
-                      child: Container(
-                        width: 100,
-                        height: 8,
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                      ),
-                    ),
-                  ),
+                  // Progress bar is now here
+                  _buildProgressBar(Alignment.centerLeft),
                   const SizedBox(height: 20),
                   Expanded(
-                    child: Image.asset(
-                      'assets/images/img.png',
+                    child: Image.network(
+                      'https://firebasestorage.googleapis.com/v0/b/gemini-beta-d9c91.appspot.com/o/onboarding_illustration.png?alt=media&token=e982c7f5-9382-4919-b3a9-a681335f6f4c',
                       errorBuilder: (context, error, stackTrace) {
                         return const Center(child: Text('Image not available', style: TextStyle(color: Colors.white)));
+                      },
+                      loadingBuilder: (context, child, loadingProgress) {
+                        if (loadingProgress == null) return child;
+                        return const Center(child: CircularProgressIndicator(valueColor: AlwaysStoppedAnimation<Color>(Colors.white)));
                       },
                     ),
                   ),
@@ -105,7 +122,7 @@ class OnboardingScreen extends StatelessWidget {
                   Align(
                     alignment: Alignment.bottomRight,
                     child: GestureDetector(
-                      onTap: () => _navigateToHome(context),
+                      onTap: () => _navigateToLogin(context),
                       child: Container(
                         width: 60,
                         height: 60,
@@ -132,3 +149,4 @@ class OnboardingScreen extends StatelessWidget {
     );
   }
 }
+
