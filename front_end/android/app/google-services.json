@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "716883137655",
+    "project_id": "attendo-sih",
+    "storage_bucket": "attendo-sih.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:716883137655:android:2b109e5780c46cc500a272",
+        "android_client_info": {
+          "package_name": "com.example.attendo"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCZbwQNv15iC5RhU8Xhk7fil6SmYF-T-Is"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
