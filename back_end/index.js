@@ -7,12 +7,15 @@ const express = require('express');
 const { connectDB } = require('./db'); // Import the connectDB function
 const studentRouter = require('./routes/student');
 const adminRouter = require('./routes/admin');
+const cors = require('cors')
+
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 // Middleware to parse JSON bodies
 app.use(express.json());
+app.use(cors())
 
 // Set up your routes
 app.use('/api/v1/student', studentRouter);
