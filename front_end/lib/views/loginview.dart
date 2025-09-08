@@ -3,7 +3,7 @@ import 'home.dart';
 import 'package:http/http.dart' as http; // Import the http package
 import 'dart:convert'; // Import for json encoding/decoding
 import 'interests_screen.dart'; // Import the new interests screen
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:shared_preferences/shared_preferences.dart'; // Corrected this import line
 
 class LoginView extends StatefulWidget {
   const LoginView({super.key});
@@ -33,6 +33,36 @@ class _LoginViewState extends State<LoginView> {
       _isLoading = true;
     });
 
+    // --- UI Navigation Logic ---
+    // This simulates a successful login to allow you to test the UI flow.
+    print('Simulating login API call...');
+    await Future.delayed(const Duration(seconds: 1)); // Simulate network delay
+    print('Simulated login success.');
+
+    // Check if interests have been selected before
+    final prefs = await SharedPreferences.getInstance();
+    final bool interestsSelected = false;
+    //final bool interestsSelected = prefs.getBool('interests_selected') ?? false;
+
+    if (mounted) {
+      if (interestsSelected) {
+        _navigateToHome();
+      } else {
+        _navigateToInterests();
+      }
+    }
+
+    // When the loading is finished (either in success or failure), reset the state.
+    if (mounted) {
+      setState(() {
+        _isLoading = false;
+      });
+    }
+
+    // --- REAL BACKEND LOGIC ---
+    // When your backend is ready, you can REMOVE the code above
+    // and UNCOMMENT the code below.
+    /*
     try {
       final email = _emailController.text.trim();
       final rollNo = _rollNoController.text.trim();
@@ -58,11 +88,9 @@ class _LoginViewState extends State<LoginView> {
 
         // --- NAVIGATION LOGIC ---
         // TODO: Your backend should return a flag like 'interests_selected'
-        // For demonstration, we'll use a local flag. In a real app, use the server's response.
         final prefs = await SharedPreferences.getInstance();
         final bool interestsSelected = prefs.getBool('interests_selected') ?? false;
 
-        // If interests are not selected, go to the InterestsScreen. Otherwise, go home.
         if (context.mounted) {
           if (interestsSelected) {
             _navigateToHome();
@@ -91,6 +119,7 @@ class _LoginViewState extends State<LoginView> {
         });
       }
     }
+    */
   }
 
   void _navigateToInterests() {
