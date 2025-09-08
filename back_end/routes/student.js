@@ -68,5 +68,33 @@ studentRouter.post('/signin', async (req, res) => {
     }
 });
 
+// POST /student/interests
+studentRouter.post('/interests', async (req, res) => {
+  try {
+    const { rollNo, interests } = req.body;
+
+    if (!rollNo || !Array.isArray(interests)) {
+      return res.status(400).json({ message: 'rollNo and interests array are required' });
+    }
+
+    // Update user interests
+    const user = await User.findOneAndUpdate(
+      { rollNo },
+      { $set: { interests } },
+      { new: true }
+    );
+
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    res.json({ message: 'Interests updated successfully', interests: user.interests });
+  } catch (error) {
+    console.error('Error updating interests:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+
 module.exports = studentRouter;
 

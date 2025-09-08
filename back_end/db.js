@@ -1,16 +1,11 @@
 const mongoose = require('mongoose');
 const bcrypt = require('bcrypt');
 
-const SALT_WORK_FACTOR = 10;
+const SALT_WORK_FACTOR = 10; // The cost factor for hashing
 
 // --- User Schema ---
+// This structure holds the permanent student data.
 const userSchema = new mongoose.Schema({
-    // RECOMMENDATION: Add a name field to store the extracted name.
-    // name: {
-    //     type: String,
-    //     required: [true, 'Name is required.'],
-    //     trim: true
-    // },
     rollNo: {
         type: String,
         required: [true, 'Roll Number is required.'],
@@ -28,13 +23,13 @@ const userSchema = new mongoose.Schema({
     password: {
         type: String,
         required: [true, 'Password is required.']
-    }
+    },
+    interests: {type:[String],default:[]}
 }, {
     timestamps: true
 });
 
 // Mongoose 'pre-save' hook to hash the password before saving
-// (The duplicate hook has been removed for clarity and correctness)
 userSchema.pre('save', async function(next) {
     if (!this.isModified('password')) return next();
     try {
@@ -51,15 +46,35 @@ userSchema.methods.comparePassword = function(candidatePassword) {
     return bcrypt.compare(candidatePassword, this.password);
 };
 
+
+userSchema.pre('save', async function(next) {
+    // Only hash the password if it has been modified (or is new)
+    if (!this.isModified('password')) return next();
+
+    try {
+        // Hash the password along with our new salt
+        this.password = await bcrypt.hash(this.password, salt);
+        next();
+    } catch (err) {
+        next(err);
+    }
+});
+
+
 const User = mongoose.model('User', userSchema);
 
-// --- Temporary Password Schema --- (No changes needed)
+
+// --- Temporary Password Schema ---
+// This schema stores the auto-generated plain-text passwords for admins to view.
+// WARNING: Storing plain-text passwords is a security risk. This model is for
+// demonstration. In a production system, these should be securely handled and
+// ideally deleted after the user's first login.
 const temporaryPasswordSchema = new mongoose.Schema({
     rollNo: {
         type: String,
         required: true,
         unique: true,
-        ref: 'User'
+        ref: 'User' // Links this temporary password to a user
     },
     password: {
         type: String,
@@ -71,7 +86,8 @@ const temporaryPasswordSchema = new mongoose.Schema({
 
 const TemporaryPassword = mongoose.model('TemporaryPassword', temporaryPasswordSchema);
 
-// --- Database Connection --- (No changes needed)
+
+// --- Database Connection ---
 const connectDB = async () => {
     try {
         await mongoose.connect(process.env.MONGO_URI);
@@ -82,4 +98,5 @@ const connectDB = async () => {
     }
 };
 
+// Export all models and the connectDB function
 module.exports = { User, TemporaryPassword, connectDB };
