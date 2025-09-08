@@ -1,8 +1,7 @@
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 
-// Initialize the Google Generative AI client with the API key from environment variables
+// Initialize the Google Generative AI client
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-
 
 function fileToGenerativePart(buffer, mimeType) {
   return {
@@ -14,22 +13,21 @@ function fileToGenerativePart(buffer, mimeType) {
 }
 
 /**
- * Extracts student information from an image containing multiple IDs using the Gemini Vision model.
- * @param {Buffer} imageBuffer The buffer of the image file.
- * @param {string} mimeType The MIME type of the image.
- * @returns {Promise<Array<object>>} A promise that resolves to an array of objects with extracted data.
+ * Extracts student information from a PDF list.
+ * @param {Buffer} pdfBuffer The buffer of the PDF file.
+ * @param {string} mimeType The MIME type of the PDF.
+ * @returns {Promise<Array<object>>} A promise resolving to an array of student objects.
  */
-async function extractInfoFromImage(imageBuffer, mimeType) {
+async function extractInfoFromPdf(pdfBuffer, mimeType) {
   try {
-    // For text-and-image input, use the gemini-pro-vision model
-    const model = genAI.getGenerativeModel({ model: "gemini-pro-vision" });
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
 
+    // --- PROMPT UPDATED FOR A LIST FORMAT ---
     const prompt = `
-      From the provided image, identify all student ID cards and extract the following information for each one:
+      From the provided PDF document, which contains a list of students, extract the following information for each student:
       1. Full Name (as "name")
       2. Roll Number or Student ID (as "rollNo")
       3. Email Address (as "email")
-      4. College or University Name (as "college")
 
       Please return the information ONLY in a valid JSON array format, where each object in the array represents one student.
       Example format:
@@ -37,39 +35,32 @@ async function extractInfoFromImage(imageBuffer, mimeType) {
         {
           "name": "John Doe",
           "rollNo": "CB.EN.U4XYZ21001",
-          "email": "john.doe@university.edu",
-          "college": "State University of Technology"
+          "email": "john.doe@university.edu"
         },
         {
           "name": "Jane Smith",
           "rollNo": "CB.EN.U4ABC21002",
-          "email": "jane.smith@university.edu",
-          "college": "State University of Technology"
+          "email": "jane.smith@university.edu"
         }
       ]
-      If no ID cards are found, return an empty array [].
+      If the document is empty or no student data can be found, return an empty array [].
       Do not include any other text, explanations, or markdown formatting around the JSON array.
     `;
     
-    // Convert the image buffer to the format required by the Gemini API
-    const imagePart = fileToGenerativePart(imageBuffer, mimeType);
+    const pdfPart = fileToGenerativePart(pdfBuffer, mimeType);
 
-    // Generate content using the model with the prompt and image
-    const result = await model.generateContent([prompt, imagePart]);
+    const result = await model.generateContent([prompt, pdfPart]);
     const response = await result.response;
     const text = response.text();
     
-    // Clean up the response text to ensure it's a valid JSON string
     const jsonString = text.replace(/```json/g, "").replace(/```/g, "").trim();
     
-    // Parse the JSON string into an object
     return JSON.parse(jsonString);
 
   } catch (error) {
     console.error("Error calling Gemini API:", error);
-    throw new Error("Failed to extract information from image via Gemini API.");
+    throw new Error("Failed to extract information from PDF via Gemini API.");
   }
 }
 
-module.exports = { extractInfoFromImage };
-
+module.exports = { extractInfoFromPdf };
