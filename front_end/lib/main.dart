@@ -35,7 +35,7 @@ class MyApp extends StatelessWidget {
         scaffoldBackgroundColor: Colors.black, // Consistent background
       ),
       // If onboarding is not complete, show the OnboardingScreen, otherwise show the HomeScreen
-      home: InterestsScreen(),
+      home: OnboardingScreen(),
       //showOnboarding ? const OnboardingScreen() : const HomeScreen()
     );
   }

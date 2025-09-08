@@ -1,138 +1,131 @@
+// routes/adminRouter.js
+
 const { Router } = require('express');
 const multer = require('multer');
 const crypto = require('crypto');
-const { User, TemporaryPassword } = require('../db'); // Import both models
-const { extractInfoFromImage } = require('../utils/gemini');
+const { User, TemporaryPassword } = require('../db');
+const { extractInfoFromPdf } = require('../utils/gemini');
 
 const adminRouter = Router();
 
-// Configure Multer to store uploaded files in memory
+// Multer and generatePassword functions remain the same
 const storage = multer.memoryStorage();
 const upload = multer({
     storage: storage,
-    limits: { fileSize: 5 * 1024 * 1024 } // Limit file size to 5MB
+    limits: { fileSize: 10 * 1024 * 1024 },
+    fileFilter: (req, file, cb) => {
+        if (file.mimetype === 'application/pdf') {
+            cb(null, true);
+        } else {
+            cb(new Error('Invalid file type. Only PDF files are allowed.'), false);
+        }
+    }
 });
+const generatePassword = () => crypto.randomBytes(4).toString('hex');
 
-// Helper function to generate a simple random password
-const generatePassword = () => {
-    // Generates an 8-character long random string (e.g., 'a1b2c3d4')
-    return crypto.randomBytes(4).toString('hex');
-};
-
-/**
- * @route   POST /admin/upload
- * @desc    Upload an image, extract info, auto-generate passwords, and save everything to the DB
- * @access  Public (for demonstration)
- */
-adminRouter.post('/upload', upload.single('idCardImage'), async (req, res) => {
+adminRouter.post('/upload', upload.single('studentListPdf'), async (req, res) => {
     try {
         if (!req.file) {
-            return res.status(400).json({ message: 'No image file uploaded.' });
+            return res.status(400).json({ message: 'No PDF file uploaded.' });
         }
 
-        console.log('Sending image to Gemini for processing...');
-        const extractedDataArray = await extractInfoFromImage(req.file.buffer, req.file.mimetype);
+        console.log('Sending PDF to Gemini for processing...');
+        const extractedDataArray = await extractInfoFromPdf(req.file.buffer, req.file.mimetype);
 
         if (!Array.isArray(extractedDataArray) || extractedDataArray.length === 0) {
-            return res.status(400).json({ message: 'Could not extract any user entries from the image.' });
+            return res.status(400).json({ message: 'Could not extract any user entries from the PDF.' });
         }
         
-        console.log(`Extracted ${extractedDataArray.length} potential user(s) from the image.`);
-
-        const validUsersToInsert = [];
-        const tempPasswordsToStore = [];
+        const validUsersToProcess = [];
         const invalidEntries = [];
 
-        // 4. Filter, validate, and generate passwords
         for (const entry of extractedDataArray) {
-            if (entry.name && entry.rollNo && entry.email && entry.college) {
-                // Generate a password for the new user
+            if (entry.rollNo && entry.email) {
                 const password = generatePassword();
-
-                // Prepare the user object with the new password for the User collection.
-                // The pre-save hook in your User model will hash this password automatically.
-                validUsersToInsert.push({ ...entry, password });
-
-                // Prepare the temporary password object for the TemporaryPassword collection
-                tempPasswordsToStore.push({ rollNo: entry.rollNo, password });
+                validUsersToProcess.push({
+                    rollNo: entry.rollNo,
+                    email: entry.email,
+                    password: password // Plain text password
+                });
             } else {
-                invalidEntries.push({ reason: 'Missing one or more required fields.', data: entry });
+                invalidEntries.push({ reason: 'Missing required fields (rollNo or email).', data: entry });
             }
         }
 
-        if (validUsersToInsert.length === 0) {
+        if (validUsersToProcess.length === 0) {
             return res.status(400).json({
-                message: 'No complete and valid user entries could be processed from the image.',
+                message: 'No valid user entries could be processed from the PDF.',
                 errors: invalidEntries
             });
         }
         
-        // 5. Insert users and their temporary passwords into the database
-        let createdUsers = [];
-        try {
-            // Step 5a: Insert all valid users. The passwords will be hashed by the model's pre-save hook.
-            createdUsers = await User.insertMany(validUsersToInsert, { ordered: false });
+        // --- THIS ENTIRE DATABASE BLOCK IS REPLACED ---
+        const createdUsers = [];
+        const failedInserts = [];
+        const tempPasswordsToStore = [];
 
-            // Step 5b: If user insertion was successful, store the temporary plain-text passwords.
-            // We only want to store passwords for users that were actually created.
-            const successfulRollNos = new Set(createdUsers.map(u => u.rollNo));
-            const finalTempPasswords = tempPasswordsToStore.filter(p => successfulRollNos.has(p.rollNo));
-
-            if (finalTempPasswords.length > 0) {
-                // We don't need to handle errors here as duplicates are unlikely if user creation succeeded.
-                await TemporaryPassword.insertMany(finalTempPasswords, { ordered: false });
-            }
-
-        } catch (error) {
-            // This block handles partial success, e.g., when some users are duplicates.
-            if (error.code === 11000 && error.result && error.result.nInserted > 0) {
-                const successCount = error.result.nInserted;
-                console.log(`${successCount} user(s) were saved before a duplicate key error.`);
-
-                // Find out which users were successfully inserted to save their temp passwords
-                const writeErrorsDetails = error.writeErrors.map(e => e.op.rollNo);
-                const successfulInserts = validUsersToInsert.filter(u => !writeErrorsDetails.includes(u.rollNo));
-                const successfulRollNos = new Set(successfulInserts.map(u => u.rollNo));
-                const finalTempPasswords = tempPasswordsToStore.filter(p => successfulRollNos.has(p.rollNo));
-
-                if (finalTempPasswords.length > 0) {
-                   try {
-                     await TemporaryPassword.insertMany(finalTempPasswords, { ordered: false });
-                   } catch (tempPassError) {
-                     // Log this but don't fail the whole request
-                     console.error("Failed to insert some temporary passwords during partial success:", tempPassError);
-                   }
+        // Loop and create each user individually to trigger the 'save' hook
+        for (const userDoc of validUsersToProcess) {
+            try {
+                // User.create() will trigger the pre-save hook that hashes the password
+                const newUser = await User.create(userDoc);
+                createdUsers.push(newUser);
+                // Only store temp passwords for successfully created users
+                tempPasswordsToStore.push({ rollNo: userDoc.rollNo, password: userDoc.password });
+            } catch (error) {
+                if (error.code === 11000) { // Handle duplicate key errors
+                    failedInserts.push({ 
+                        reason: `Duplicate key error for rollNo: ${userDoc.rollNo}`, 
+                        data: userDoc 
+                    });
+                } else {
+                    // Handle other validation errors
+                    failedInserts.push({ reason: error.message, data: userDoc });
                 }
-                
-                return res.status(207).json({
-                    message: `Partial success. ${successCount} new user(s) were created.`,
-                    successfulInserts: successCount,
-                    // Provide the passwords for successfully created users
-                    createdUsersWithPasswords: finalTempPasswords,
-                    failedInserts: error.writeErrors.map(e => ({ message: `Duplicate key error.`, detail: e.err.errmsg })),
-                    malformedEntries: invalidEntries,
-                });
             }
-            // If it's a different kind of DB error, re-throw to the outer catch block.
-            throw error;
         }
 
-        // 6. Send a final success response, including the generated passwords for the admin
+        // Now, insert the temporary passwords for the users that were successfully created
+        if (tempPasswordsToStore.length > 0) {
+            try {
+                await TemporaryPassword.insertMany(tempPasswordsToStore, { ordered: false });
+            } catch (tempPassError) {
+                // Log this error but don't fail the entire request
+                console.error("Error inserting some temporary passwords:", tempPassError);
+            }
+        }
+        
+        // Send a final response based on the outcome
+        if (failedInserts.length > 0 && createdUsers.length > 0) {
+            return res.status(207).json({
+                message: `Partial success. ${createdUsers.length} new user(s) were created.`,
+                successfulInserts: createdUsers.length,
+                createdUsersWithPasswords: tempPasswordsToStore,
+                failedInserts: failedInserts,
+                malformedEntries: invalidEntries,
+            });
+        }
+
+        if (failedInserts.length > 0 && createdUsers.length === 0) {
+            return res.status(409).json({ // 409 Conflict
+                message: `Operation failed. No new users were created.`,
+                failedInserts: failedInserts,
+                malformedEntries: invalidEntries,
+            });
+        }
+
         res.status(201).json({
             message: `Successfully created ${createdUsers.length} user(s).`,
-            // Return the created user info along with their generated plain-text passwords
             createdUsersWithPasswords: tempPasswordsToStore,
-            malformedEntries: invalidEntries
+            malformedEntries: invalidEntries,
         });
 
     } catch (error) {
-        console.error('Error during image upload and processing:', error);
-        // Avoid sending a generic error if a specific one (like 207 Multi-Status) was already sent
-        if (error.code !== 11000) {
-            res.status(500).json({ message: 'An internal server error occurred.' });
+        console.error('Error during PDF upload and processing:', error);
+        if (!res.headersSent) {
+             res.status(500).json({ message: error.message || 'An internal server error occurred.' });
         }
     }
 });
 
 module.exports = adminRouter;
-

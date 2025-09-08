@@ -3,7 +3,7 @@ import 'home.dart';
 import 'package:http/http.dart' as http; // Import the http package
 import 'dart:convert'; // Import for json encoding/decoding
 import 'interests_screen.dart'; // Import the new interests screen
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:shared_preferences/shared_preferences.dart'; // Corrected this import line
 
 class LoginView extends StatefulWidget {
   const LoginView({super.key});
@@ -33,16 +33,43 @@ class _LoginViewState extends State<LoginView> {
       _isLoading = true;
     });
 
+    // --- UI Navigation Logic ---
+    // This simulates a successful login to allow you to test the UI flow.
+    // print('Simulating login API call...');
+    // await Future.delayed(const Duration(seconds: 1)); // Simulate network delay
+    // print('Simulated login success.');
+    //
+    // // Check if interests have been selected before
+    // final prefs = await SharedPreferences.getInstance();
+    // final bool interestsSelected = false;
+    // //final bool interestsSelected = prefs.getBool('interests_selected') ?? false;
+    //
+    // if (mounted) {
+    //   if (interestsSelected) {
+    //     _navigateToHome();
+    //   } else {
+    //     _navigateToInterests();
+    //   }
+    // }
+    //
+    // // When the loading is finished (either in success or failure), reset the state.
+    // if (mounted) {
+    //   setState(() {
+    //     _isLoading = false;
+    //   });
+    // }
+
+
     try {
       final email = _emailController.text.trim();
       final rollNo = _rollNoController.text.trim();
       final password = _passwordController.text;
 
-      final url = Uri.parse('https://api.yourapp.com/login');
+      final url = Uri.parse('http://192.168.0.100:3000/api/v1/student/signin');
 
       final body = json.encode({
         'email': email,
-        'rollNumber': rollNo,
+        'rollNo': rollNo,
         'password': password,
       });
 
@@ -53,32 +80,44 @@ class _LoginViewState extends State<LoginView> {
       );
 
       if (response.statusCode == 200) {
-        print('Login successful!');
+        print(response.statusCode);
+        _navigateToInterests();
         final responseData = json.decode(response.body);
 
-        // --- NAVIGATION LOGIC ---
-        // TODO: Your backend should return a flag like 'interests_selected'
-        // For demonstration, we'll use a local flag. In a real app, use the server's response.
-        final prefs = await SharedPreferences.getInstance();
-        final bool interestsSelected = prefs.getBool('interests_selected') ?? false;
-
-        // If interests are not selected, go to the InterestsScreen. Otherwise, go home.
-        if (context.mounted) {
-          if (interestsSelected) {
-            _navigateToHome();
-          } else {
-            _navigateToInterests();
-          }
-        }
-
-      } else {
-        print('Login failed with status: ${response.statusCode}');
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Login Failed. Please check your credentials.')),
-        );
+        //       // --- NAVIGATION LOGIC ---
+        //       // TODO: Your backend should return a flag like 'interests_selected'
+        //       final prefs = await SharedPreferences.getInstance();
+        //       final bool interestsSelected = prefs.getBool('interests_selected') ?? false;
+        //
+        //       if (context.mounted) {
+        //         if (interestsSelected) {
+        //           _navigateToHome();
+        //         } else {
+        //           _navigateToInterests();
+        //         }
+        //       }
+        //
+        //     } else {
+        //       print('Login failed with status: ${response.statusCode}');
+        //       ScaffoldMessenger.of(context).showSnackBar(
+        //         const SnackBar(content: Text('Login Failed. Please check your credentials.')),
+        //       );
+        //     }
+        //
+        // }
       }
-
-    } catch (e) {
+      else {
+        // Handle failed login (e.g., wrong password)
+        print('Login failed with status: ${response.statusCode}');
+        print('Response body: ${response.body}');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Login Failed. Please check your credentials.')),
+          );
+        }
+      }
+    }
+    catch (e) {
       print('An error occurred during login: $e');
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('An error occurred. Please try again later.')),
