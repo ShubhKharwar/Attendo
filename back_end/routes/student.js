@@ -55,7 +55,7 @@ studentRouter.post('/signin', async (req, res) => {
 
         // 5. Sign the token
         const token = jwt.sign(payload, JWT_SECRET, { expiresIn: '1d' }); // Token expires in 1 day
-
+        console.log('sign in successfully')
         // 6. Send token to client
         res.status(200).json({
             message: "Signed in successfully.",
