@@ -1,6 +1,5 @@
-import 'package:attendo/views/loginview.dart';
 import 'package:flutter/material.dart';
-import 'scanning_page.dart';
+import 'student_scan.dart';
 import 'leaderboard_page.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -15,73 +14,56 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  // --- 2. UPDATE STATE VARIABLES ---
-  String _userName = 'Loading...'; // Start with a loading state
-  String _nextTask = 'Loading...'; // Placeholder task
-  final _storage = const FlutterSecureStorage(); // Instance of secure storage
+  String _userName = 'Loading...';
+  String _nextTask = 'Loading...';
+  final _storage = const FlutterSecureStorage();
 
   @override
   void initState() {
     super.initState();
-    // Fetch the user data when the screen loads
     _fetchUserData();
   }
 
-  // --- 3. NEW FUNCTION TO FETCH USER DATA ---
   Future<void> _fetchUserData() async {
     try {
-      // Read the token from storage
       final token = await _storage.read(key: 'auth_token');
 
       if (token == null) {
         print('No token found, navigating to login.');
-        _logout(); // If no token, treat as logged out
+        _logout();
         return;
       }
 
-      // Replace with your actual profile endpoint
       final url = Uri.parse('http://192.168.0.110:3000/api/v1/student/profile');
 
       final response = await http.get(
         url,
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token', // Send the token
+          'Authorization': 'Bearer $token',
         },
       );
 
       if (response.statusCode == 200 && mounted) {
         final data = json.decode(response.body);
-
-        // IMPORTANT: Adjust the keys based on your backend's JSON response structure.
-        // Example response: {"success": true, "student": {"name": "Anushka", "email": "..."}}
-
         setState(() {
-          _userName = data['name'] ?? 'User'; // Use the fetched name
-          // You can also fetch the next task here if it comes from the backend
-          // _nextTask = data['next_task_from_ai_model'] ?? 'No tasks';
+          _userName = data['name'] ?? 'User';
         });
-
       } else if (response.statusCode == 401 && mounted) {
-        // 401 Unauthorized usually means the token is invalid or expired
         print('Token is invalid or expired. Logging out.');
         _logout();
       } else {
         print('Failed to load user data. Status code: ${response.statusCode}');
-        if(mounted) setState(() => _userName = 'Error');
+        if (mounted) setState(() => _userName = 'Error');
       }
     } catch (e) {
       print('An error occurred while fetching user data: $e');
-      if(mounted) setState(() => _userName = 'Error2');
+      if (mounted) setState(() => _userName = 'Error');
     }
   }
 
-  // --- 4. NEW LOGOUT FUNCTION ---
   Future<void> _logout() async {
-    // Delete the token from secure storage
     await _storage.delete(key: 'auth_token');
-
-    // Navigate back to the Login screen and remove all previous routes
     if (mounted) {
       Navigator.of(context).pushAndRemoveUntil(
         MaterialPageRoute(builder: (context) => const LoginView()),
@@ -95,7 +77,7 @@ class _HomeScreenState extends State<HomeScreen> {
     return Scaffold(
       backgroundColor: Colors.black,
       drawer: _buildAppDrawer(),
-      bottomNavigationBar: _buildBottomAppBar(),
+      bottomNavigationBar: _buildBottomNavBar(), // Updated to new nav bar
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24.0),
@@ -127,7 +109,6 @@ class _HomeScreenState extends State<HomeScreen> {
             if (value == 'profile') {
               print('Profile selected');
             } else if (value == 'logout') {
-              // --- 5. CONNECT LOGOUT FUNCTION ---
               _logout();
             }
           },
@@ -153,15 +134,13 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // ... (The rest of your widgets: _buildGreetingAndAttendance, _buildNextTaskCard, etc. remain exactly the same as they already use the `_userName` state variable)
+  // --- WIDGETS BELOW ARE LARGELY UNCHANGED, EXCEPT FOR NAVIGATION ---
 
-  // No changes below this line, your other widgets are perfectly fine.
   Widget _buildGreetingAndAttendance() {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        // This Text widget will now automatically update with the fetched name
         Text(
           'Hi $_userName!',
           style: const TextStyle(
@@ -232,9 +211,10 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildMarkAttendanceButton() {
     return GestureDetector(
       onTap: () {
+        // --- NAVIGATION CHANGE HERE ---
         Navigator.push(
           context,
-          MaterialPageRoute(builder: (context) => const ScanningPage()),
+          MaterialPageRoute(builder: (context) => const StudentScanPage()),
         );
       },
       child: Row(
@@ -323,61 +303,57 @@ class _HomeScreenState extends State<HomeScreen> {
           ListTile(
             leading: const Icon(Icons.pages, color: Colors.white),
             title: const Text('Page 1', style: TextStyle(color: Colors.white)),
-            onTap: () {
-              Navigator.pop(context);
-            },
+            onTap: () => Navigator.pop(context),
           ),
           ListTile(
             leading: const Icon(Icons.pages, color: Colors.white),
             title: const Text('Page 2', style: TextStyle(color: Colors.white)),
-            onTap: () {
-              Navigator.pop(context);
-            },
-          ),
-          ListTile(
-            leading: const Icon(Icons.pages, color: Colors.white),
-            title: const Text('Page 3', style: TextStyle(color: Colors.white)),
-            onTap: () {
-              Navigator.pop(context);
-            },
-          ),
-          ListTile(
-            leading: const Icon(Icons.pages, color: Colors.white),
-            title: const Text('Page 4', style: TextStyle(color: Colors.white)),
-            onTap: () {
-              Navigator.pop(context);
-            },
-          ),
-          ListTile(
-            leading: const Icon(Icons.pages, color: Colors.white),
-            title: const Text('Page 5', style: TextStyle(color: Colors.white)),
-            onTap: () {
-              Navigator.pop(context);
-            },
+            onTap: () => Navigator.pop(context),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildBottomAppBar() {
-    return BottomAppBar(
-      color: Colors.white,
-      shape: const CircularNotchedRectangle(),
-      notchMargin: 8.0,
+  // --- NEW BOTTOM NAVIGATION BAR ---
+  Widget _buildBottomNavBar() {
+    return Container(
+      height: 80,
+      decoration: BoxDecoration(
+        color: Colors.grey[900],
+        borderRadius: const BorderRadius.only(
+          topLeft: Radius.circular(20),
+          topRight: Radius.circular(20),
+        ),
+      ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
-        children: <Widget>[
+        children: [
           IconButton(
-            icon: const Icon(Icons.emoji_events_outlined, color: Colors.black),
+            icon: const Icon(Icons.emoji_events_outlined, color: Colors.grey, size: 30),
             onPressed: () {},
           ),
-          IconButton(
-            icon: const Icon(Icons.qr_code, color: Colors.black),
-            onPressed: () {},
+          // Central, larger button
+          GestureDetector(
+            onTap: () {
+              // --- NAVIGATION CHANGE HERE ---
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const StudentScanPage()),
+              );
+            },
+            child: Container(
+              width: 60,
+              height: 60,
+              decoration: const BoxDecoration(
+                shape: BoxShape.circle,
+                color: Color(0xFF4CAF50),
+              ),
+              child: const Icon(Icons.qr_code_scanner, color: Colors.white, size: 35),
+            ),
           ),
           IconButton(
-            icon: const Icon(Icons.book_outlined, color: Colors.black),
+            icon: const Icon(Icons.book_outlined, color: Colors.grey, size: 30),
             onPressed: () {},
           ),
         ],

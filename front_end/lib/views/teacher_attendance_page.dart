@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:qr_flutter/qr_flutter.dart';
+import 'package:uuid/uuid.dart';
 import 'beacon_control.dart';
+
 
 class TeacherAttendancePage extends StatefulWidget {
   const TeacherAttendancePage({Key? key}) : super(key: key);
@@ -10,23 +13,33 @@ class TeacherAttendancePage extends StatefulWidget {
 
 class _TeacherAttendancePageState extends State<TeacherAttendancePage> {
   final BeaconControl _beaconControl = BeaconControl();
+  final Uuid _uuid = const Uuid();
 
   // Example iBeacon UUID and IDs; replace if needed
   final String beaconUuid = '74278bda-b644-4520-8f0c-720eaf059935';
   final int major = 1;
   final int minor = 101;
 
-  Future<void> generate_qr() async {
-    // TODO: Add your QR code generation logic here.
-  }
-
+  /// Generates a unique session ID, starts the beacon, and navigates to the
+  /// page that displays the QR code.
   Future<void> _onGenerateQR() async {
-    await generate_qr();
+    // Generate a unique identifier for the attendance session.
+    // This data will be embedded in the QR code.
+    final String sessionQrData = _uuid.v4();
+
+    // Start broadcasting the beacon signal for this session.
     await _beaconControl.startBeacon(beaconUuid, major, minor);
+
+    // Ensure the widget is still mounted before navigating.
     if (!mounted) return;
+
+    // Navigate to the next screen to display the QR code and the stop button.
+    // The session data is passed to the next page.
     Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => const StopAttendancePage()),
+      MaterialPageRoute(
+        builder: (_) => StopAttendancePage(qrData: sessionQrData),
+      ),
     );
   }
 
@@ -38,13 +51,13 @@ class _TeacherAttendancePageState extends State<TeacherAttendancePage> {
         child: Column(
           children: [
             const SizedBox(height: 40),
-            // QR code icon placeholder
-            Expanded(
+            // A placeholder icon to represent QR code generation
+            const Expanded(
               child: Center(
                 child: Icon(
                   Icons.qr_code_scanner,
                   size: 180,
-                  color: const Color(0xFF4CAF50),
+                  color: Color(0xFF4CAF50),
                 ),
               ),
             ),
@@ -87,9 +100,14 @@ class _TeacherAttendancePageState extends State<TeacherAttendancePage> {
   }
 }
 
+/// This page displays the generated QR code for the attendance session
+/// and provides a button to stop the session.
 class StopAttendancePage extends StatelessWidget {
-  const StopAttendancePage({Key? key}) : super(key: key);
+  final String qrData;
 
+  const StopAttendancePage({Key? key, required this.qrData}) : super(key: key);
+
+  /// Stops the beacon broadcast and pops the current page to end the session.
   Future<void> _onStopAttendance(BuildContext context) async {
     final beaconControl = BeaconControl();
     await beaconControl.stopBeacon();
@@ -102,13 +120,28 @@ class StopAttendancePage extends StatelessWidget {
       backgroundColor: Colors.black,
       body: SafeArea(
         child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const SizedBox(height: 60),
-            Expanded(
-              child: Center(
-                child: Icon(Icons.qr_code_scanner, size: 150, color: const Color(0xFF4CAF50)),
+            const Spacer(),
+            // Display the live QR code
+            Center(
+              // The QrImageView widget from the qr_flutter package renders the QR code.
+              child: QrImageView(
+                data: qrData,
+                version: QrVersions.auto,
+                size: 220.0,
+                // Add a white background to the QR code for better scannability.
+                backgroundColor: Colors.white,
+                gapless: false,
               ),
             ),
+            const SizedBox(height: 24),
+            const Text(
+              'Scan to mark attendance',
+              style: TextStyle(color: Colors.white70, fontSize: 16),
+            ),
+            const Spacer(),
+            // Stop Attendance Button
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 32),
               child: SizedBox(
