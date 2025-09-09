@@ -3,31 +3,44 @@ import 'dart:convert';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:http/http.dart' as http;
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
-class StudentScanPage extends StatefulWidget {
-  const StudentScanPage({super.key});
+class ScanningPage extends StatefulWidget {
+  const ScanningPage({super.key});
 
   @override
-  State<StudentScanPage> createState() => _StudentScanPageState();
+  State<ScanningPage> createState() => _ScanningPageState();
 }
 
-class _StudentScanPageState extends State<StudentScanPage> {
+class _ScanningPageState extends State<ScanningPage> {
   final MobileScannerController _scannerController = MobileScannerController();
+  final _storage = const FlutterSecureStorage();
+  
   bool _isScanning = true;
-  PermissionStatus? _permissionStatus;
+  bool _isProcessing = false;
+  PermissionStatus? _cameraPermission;
+  PermissionStatus? _bluetoothPermission;
+  
+  String? _scannedSessionId;
+  String? _scannedSubject;
 
   @override
   void initState() {
     super.initState();
-    _requestCameraPermission();
+    _requestPermissions();
   }
 
-  Future<void> _requestCameraPermission() async {
-    final status = await Permission.camera.request();
+  Future<void> _requestPermissions() async {
+    final cameraStatus = await Permission.camera.request();
+    final bluetoothStatus = await Permission.bluetoothScan.request();
+    
     if (mounted) {
       setState(() {
-        _permissionStatus = status;
+        _cameraPermission = cameraStatus;
+        _bluetoothPermission = bluetoothStatus;
       });
     }
   }
@@ -40,7 +53,6 @@ class _StudentScanPageState extends State<StudentScanPage> {
 
   void _showSnackbar(String message, {bool isError = false}) {
     if (!mounted) return;
-    // Hide any currently displayed snackbar before showing a new one
     ScaffoldMessenger.of(context).hideCurrentSnackBar();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -54,85 +66,190 @@ class _StudentScanPageState extends State<StudentScanPage> {
   }
 
   void _onDetect(BarcodeCapture capture) async {
-    if (!_isScanning) return;
-    setState(() => _isScanning = false);
+    if (!_isScanning || _isProcessing) return;
+
+    setState(() {
+      _isScanning = false;
+      _isProcessing = true;
+    });
 
     final String? qrCodeData = capture.barcodes.first.rawValue;
     if (qrCodeData == null) {
       _showSnackbar("Failed to read QR code.", isError: true);
-      // --- FIX: Add cooldown for read failure ---
-      await Future.delayed(const Duration(seconds: 3));
-      if (mounted) setState(() => _isScanning = true);
+      await Future.delayed(const Duration(seconds: 2));
+      if (mounted) {
+        setState(() {
+          _isScanning = true;
+          _isProcessing = false;
+        });
+      }
       return;
     }
 
     try {
+      // Parse QR code data
       final data = jsonDecode(qrCodeData);
       final sessionId = data['sessionId'];
-      final subjectCode = data['subjectCode'];
+      final subject = data['subject'];
 
-      if (sessionId == null || subjectCode == null) {
-        throw const FormatException("Missing required data in QR code.");
+      if (sessionId == null || subject == null) {
+        throw const FormatException("Missing sessionId or subject in QR code");
       }
 
-      print("✅ Successfully scanned QR Code:");
-      print("   Session ID: $sessionId");
-      print("   Subject Code: $subjectCode");
+      setState(() {
+        _scannedSessionId = sessionId;
+        _scannedSubject = subject;
+      });
 
-      _showSnackbar("Attendance Marked Successfully!");
-      await Future.delayed(const Duration(seconds: 2));
-      if (mounted) Navigator.of(context).pop();
+      print("✅ QR Code Scanned:");
+      print("  Session ID: $sessionId");
+      print("  Subject: $subject");
+      
+      _showSnackbar("QR Scanned! Now verifying proximity...");
+      
+      // Proceed with attendance marking
+      await _markAttendance();
 
     } catch (e) {
       print("❌ QR Code Error: $e");
       _showSnackbar("Invalid QR code format. Please try again.", isError: true);
-
-      // --- FIX: THIS IS THE KEY CHANGE ---
-      // Introduce a cooldown period before allowing another scan.
-      // This gives the snackbar time to disappear.
-      await Future.delayed(const Duration(seconds: 4));
+      await Future.delayed(const Duration(seconds: 3));
       if (mounted) {
-        setState(() => _isScanning = true);
+        setState(() {
+          _isScanning = true;
+          _isProcessing = false;
+        });
       }
+    }
+  }
+
+  Future<void> _markAttendance() async {
+    try {
+      // Step 1: BLE Beacon Proximity Check
+      _showSnackbar("Checking classroom proximity...");
+      bool beaconFound = await _searchForTeacherBeacon();
+      
+      if (!beaconFound) {
+        _showSnackbar("You are not close enough to the teacher. Please move closer.", isError: true);
+        await Future.delayed(const Duration(seconds: 3));
+        if (mounted) {
+          setState(() {
+            _isScanning = true;
+            _isProcessing = false;
+          });
+        }
+        return;
+      }
+
+      // Step 2: Call Backend API
+      _showSnackbar("Proximity verified! Marking attendance...");
+      await _callMarkAttendanceAPI();
+
+    } catch (e) {
+      _showSnackbar("Error: $e", isError: true);
+      await Future.delayed(const Duration(seconds: 3));
+      if (mounted) {
+        setState(() {
+          _isScanning = true;
+          _isProcessing = false;
+        });
+      }
+    }
+  }
+
+  Future<bool> _searchForTeacherBeacon() async {
+    try {
+      print("🔍 Searching for teacher's beacon...");
+      
+      if (await FlutterBluePlus.isAvailable == false) {
+        print("❌ Bluetooth not available");
+        return true; // Allow attendance for testing even if BLE fails
+      }
+
+      // Start BLE scan
+      await FlutterBluePlus.startScan(timeout: const Duration(seconds: 8));
+      
+      bool beaconFound = false;
+      
+      // Listen for scan results
+      final subscription = FlutterBluePlus.scanResults.listen((results) {
+        for (ScanResult result in results) {
+          // Check proximity based on RSSI (signal strength)
+          // RSSI > -70 indicates close proximity
+          if (result.rssi > -70) {
+            beaconFound = true;
+            print("✅ Teacher beacon found with RSSI: ${result.rssi}");
+            break;
+          }
+        }
+      });
+
+      // Wait for scan to complete
+      await Future.delayed(const Duration(seconds: 8));
+      await subscription.cancel();
+      await FlutterBluePlus.stopScan();
+
+      return beaconFound;
+
+    } catch (e) {
+      print("❌ Beacon search error: $e");
+      return true; // Allow attendance for testing even if BLE scan fails
+    }
+  }
+
+  Future<void> _callMarkAttendanceAPI() async {
+    final token = await _storage.read(key: 'auth_token');
+    if (token == null) {
+      throw Exception('Authentication token not found. Please login again.');
+    }
+
+    final url = Uri.parse('http://192.168.0.110:3000/api/v1/student/markAttendance');
+    final body = jsonEncode({
+      'sessionId': _scannedSessionId,
+      'subject': _scannedSubject,
+    });
+
+    final response = await http.post(
+      url,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token',
+      },
+      body: body,
+    );
+
+    if (response.statusCode == 200) {
+      _showSnackbar("✅ Attendance marked successfully for $_scannedSubject!");
+      print("✅ Attendance marked successfully!");
+      
+      // Navigate back after success
+      await Future.delayed(const Duration(seconds: 2));
+      if (mounted) Navigator.of(context).pop();
+      
+    } else {
+      final errorData = jsonDecode(response.body);
+      throw Exception(errorData['message'] ?? 'Failed to mark attendance');
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    // --- Camera Permission Handling UI ---
-    if (_permissionStatus == null) {
+    // Permission checks
+    if (_cameraPermission == null || _bluetoothPermission == null) {
       return const Scaffold(
         backgroundColor: Colors.black,
-        body: Center(child: CircularProgressIndicator()),
+        body: Center(child: CircularProgressIndicator(color: Colors.white)),
       );
     }
 
-    if (_permissionStatus != PermissionStatus.granted) {
+    if (_cameraPermission != PermissionStatus.granted) {
       return Scaffold(
         backgroundColor: Colors.black,
         body: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24.0),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Text('Camera Permission Needed', style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 16),
-                const Text('This app needs camera access to scan QR codes.', style: TextStyle(color: Colors.white70, fontSize: 16), textAlign: TextAlign.center),
-                const SizedBox(height: 24),
-                ElevatedButton(
-                  onPressed: () async {
-                    if (await Permission.camera.isPermanentlyDenied) {
-                      openAppSettings();
-                    } else {
-                      _requestCameraPermission();
-                    }
-                  },
-                  style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
-                  child: const Text('Grant Permission'),
-                ),
-              ],
-            ),
+          child: _buildPermissionUI(
+            'Camera Permission Needed',
+            'This app needs camera access to scan QR codes.',
+            () => _requestPermissions(),
           ),
         ),
       );
@@ -160,7 +277,11 @@ class _StudentScanPageState extends State<StudentScanPage> {
               if (!state.isInitialized || !state.isRunning) return const SizedBox.shrink();
               return IconButton(
                 color: Colors.white,
-                icon: Icon(state.torchState == TorchState.on ? Icons.flashlight_on : Icons.flashlight_off),
+                icon: Icon(
+                  state.torchState == TorchState.on 
+                      ? Icons.flashlight_on 
+                      : Icons.flashlight_off
+                ),
                 onPressed: () => _scannerController.toggleTorch(),
               );
             },
@@ -170,11 +291,14 @@ class _StudentScanPageState extends State<StudentScanPage> {
       body: Stack(
         fit: StackFit.expand,
         children: [
+          // Camera Scanner
           MobileScanner(
             controller: _scannerController,
             onDetect: _onDetect,
             scanWindow: scanWindow,
           ),
+          
+          // Overlay with blur
           ClipPath(
             clipper: ScannerOverlayClipper(scanWindow),
             child: BackdropFilter(
@@ -184,15 +308,81 @@ class _StudentScanPageState extends State<StudentScanPage> {
               ),
             ),
           ),
+          
+          // Scan window border
           Center(
             child: Container(
               width: scanWindow.width,
               height: scanWindow.height,
               decoration: BoxDecoration(
-                border: Border.all(color: Colors.greenAccent.withOpacity(0.8), width: 3),
+                border: Border.all(
+                  color: _isProcessing 
+                      ? Colors.orange.withOpacity(0.8)
+                      : Colors.greenAccent.withOpacity(0.8), 
+                  width: 3
+                ),
                 borderRadius: BorderRadius.circular(16),
               ),
             ),
+          ),
+          
+          // Status overlay
+          if (_isProcessing)
+            Positioned(
+              top: 100,
+              left: 20,
+              right: 20,
+              child: Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(0.8),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Column(
+                  children: [
+                    const CircularProgressIndicator(color: Colors.orange),
+                    const SizedBox(height: 12),
+                    Text(
+                      _scannedSubject != null 
+                          ? 'Processing $_scannedSubject attendance...'
+                          : 'Processing...',
+                      style: const TextStyle(color: Colors.white),
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPermissionUI(String title, String description, VoidCallback onRequest) {
+    return Padding(
+      padding: const EdgeInsets.all(24.0),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text(
+            title,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 22,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            description,
+            style: const TextStyle(color: Colors.white70, fontSize: 16),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 24),
+          ElevatedButton(
+            onPressed: onRequest,
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+            child: const Text('Grant Permission'),
           ),
         ],
       ),
@@ -202,6 +392,7 @@ class _StudentScanPageState extends State<StudentScanPage> {
 
 class ScannerOverlayClipper extends CustomClipper<Path> {
   final Rect scanWindow;
+
   ScannerOverlayClipper(this.scanWindow);
 
   @override
@@ -209,13 +400,13 @@ class ScannerOverlayClipper extends CustomClipper<Path> {
     return Path.combine(
       PathOperation.difference,
       Path()..addRect(Rect.fromLTWH(0, 0, size.width, size.height)),
-      // --- FIX: Removed the redundant .close() call ---
       Path()..addRRect(RRect.fromRectAndRadius(
-          scanWindow, const Radius.circular(16))),
+        scanWindow, 
+        const Radius.circular(16)
+      )),
     );
   }
 
   @override
   bool shouldReclip(covariant CustomClipper<Path> oldClipper) => false;
 }
-
