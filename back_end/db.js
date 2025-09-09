@@ -38,6 +38,9 @@ const userSchema = new mongoose.Schema(
     },
     interests: { type: [String], default: [] },
     interestsSelected: { type: Boolean, default: false },
+    class:{type:String,
+      required:[true, "class is required"]
+    },
     // attendanceLog: [
     //   {
     //     sessionId: String, // uniquely identifies the session (e.g., a UUID from the QR)
@@ -46,7 +49,7 @@ const userSchema = new mongoose.Schema(
     //   },
     // ],
     attendanceLog:[],
-    lastlastSessionId: { type: String, default: null }, // Track last session to prevent duplicates
+    lastSessionId: { type: String, default: null }, // Track last session to prevent duplicates
     presentDays: { type: Number, default: 0 },
     totalDays: { type: Number, default: 0 },
   },
