@@ -26,7 +26,7 @@ class MyApp extends StatelessWidget {
         scaffoldBackgroundColor: Colors.black,
       ),
       // The AuthWrapper will decide which screen to show first.
-      home: const AuthWrapper(),
+      home: const TeacherAttendancePage(),
     );
   }
 }
