@@ -126,5 +126,63 @@ studentRouter.get('/profile' , auth ,  function(req , res){
     });
 })
 
+// POST /student/markAttendance
+studentRouter.post('/markAttendance', auth, async (req, res) => {
+  try {
+    const { sessionId, subject } = req.body;
+    const userInfo = req.user;
+
+    // Validation
+    if (!sessionId || !subject) {
+      return res.status(400).json({ message: "sessionId and subject are required" });
+    }
+
+    // Find user
+    const user = await User.findOne({ rollNo: userInfo.rollNo });
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // Check for duplicate session
+    if (user.lastSessionId === sessionId) {
+      return res.status(400).json({ 
+        message: "Attendance already marked for this session" 
+      });
+    }
+
+    // Find matching subject in attendanceLog
+    let attendanceEntry = user.attendanceLog.find(entry => entry.subject === subject);
+
+    if (attendanceEntry) {
+      // Subject found - increment presentDays
+      attendanceEntry.presentDays += 1;
+    } else {
+      // Subject not found - create new entry
+      user.attendanceLog.push({
+        subject: subject,
+        presentDays: 1,
+        totalDays: 0
+      });
+    }
+
+    // Update lastSessionId to prevent duplicates
+    user.lastSessionId = sessionId;
+
+    // Save changes
+    await user.save();
+
+    res.status(200).json({
+      message: "Attendance marked successfully",
+      subject: subject,
+      sessionId: sessionId
+    });
+
+  } catch (error) {
+    console.error("Error marking attendance:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+
+
 module.exports = studentRouter;
 
