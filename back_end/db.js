@@ -46,6 +46,7 @@ const userSchema = new mongoose.Schema(
     //   },
     // ],
     attendanceLog:[],
+    lastlastSessionId: { type: String, default: null }, // Track last session to prevent duplicates
     presentDays: { type: Number, default: 0 },
     totalDays: { type: Number, default: 0 },
   },
