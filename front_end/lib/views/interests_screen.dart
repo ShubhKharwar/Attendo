@@ -68,6 +68,7 @@ class _InterestsScreenState extends State<InterestsScreen> {
   }
 
 
+  // ADD THIS
   Future<void> _submitInterests() async {
     if (_isLoading || _selectedInterests.length < 5) return;
 
@@ -75,66 +76,46 @@ class _InterestsScreenState extends State<InterestsScreen> {
       _isLoading = true;
     });
 
-    // --- UI Navigation Logic ---
-    // This simulates a successful API call and navigates to the home screen
-    // to allow you to test the UI flow.
-    print('Simulating API call...');
-    await Future.delayed(const Duration(seconds: 1)); // Simulate network delay
-    print('Simulated success. Navigating to home.');
-
-    // Set the flag to prevent this screen from showing again
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('interests_selected', true);
-
-    _navigateToHome();
-
-    // --- REAL BACKEND LOGIC ---
-    // When your backend is ready, you can REMOVE the code above
-    // and UNCOMMENT the code below.
-    /*
     try {
-      // --- Step 1: Gather Data in the App ---
-      final selectedInterestsList = _selectedInterests.toList();
-      print('User selected interests: $selectedInterestsList');
-      // TODO: Replace with the actual student ID retrieved after login
-      const studentId = 'STU001';
+      final prefs = await SharedPreferences.getInstance();
+      // Retrieves the user's roll number saved during login.
+      final rollNo = prefs.getString('rollNo') ?? '';
 
-      // --- Step 2: Define the Backend API Endpoint ---
-      // This is the URL for your Node.js server that will handle this request.
-      final url = Uri.parse('https://api.yourapp.com/process-student-interests');
+      final selectedInterestsList = _selectedInterests.toList();
+
+      // Make sure to replace this with your actual backend URL.
+      final url = Uri.parse('http://192.168.0.110:3000/api/v1/student/interests');
 
       final body = json.encode({
-        'student_id': studentId,
+        'rollNo': rollNo,
         'interests': selectedInterestsList,
       });
 
-      // --- Step 3: Detailed Backend Implementation Plan is in the comments above this function ---
-
-      // --- Step 4: Make the HTTP Request from Flutter to Node.js ---
       final response = await http.post(
         url,
         headers: {'Content-Type': 'application/json'},
         body: body,
       );
 
-      // --- Step 5: Handle the Final Response in the App ---
       if (response.statusCode == 200) {
         print('Interests submitted and processed successfully!');
-        final prefs = await SharedPreferences.getInstance();
         await prefs.setBool('interests_selected', true);
         _navigateToHome();
       } else {
         print('Failed to submit interests. Status: ${response.statusCode}');
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Could not save interests. Please try again.')),
-        );
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Could not save interests. Please try again.')),
+          );
+        }
       }
-
     } catch (e) {
       print('An error occurred: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('An error occurred. Please try again later.')),
         );
+      }
     } finally {
       if (mounted) {
         setState(() {
@@ -142,7 +123,6 @@ class _InterestsScreenState extends State<InterestsScreen> {
         });
       }
     }
-    */
   }
 
   void _navigateToHome() {

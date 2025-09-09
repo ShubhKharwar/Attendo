@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../beacon_control.dart';
+import 'beacon_control.dart';
 
 class TeacherAttendancePage extends StatefulWidget {
   const TeacherAttendancePage({Key? key}) : super(key: key);

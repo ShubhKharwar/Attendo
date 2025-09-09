@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 import 'home.dart';
-import 'package:http/http.dart' as http; // Import the http package
-import 'dart:convert'; // Import for json encoding/decoding
-import 'interests_screen.dart'; // Import the new interests screen
-import 'package:shared_preferences/shared_preferences.dart'; // Corrected this import line
+import 'package:http/http.dart' as http;
+import 'dart:convert';
+import 'interests_screen.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 class LoginView extends StatefulWidget {
   const LoginView({super.key});
@@ -18,6 +19,7 @@ class _LoginViewState extends State<LoginView> {
   final _passwordController = TextEditingController();
   bool _isPasswordVisible = false;
   bool _isLoading = false;
+  final _storage = const FlutterSecureStorage();
 
   @override
   void dispose() {
@@ -33,39 +35,12 @@ class _LoginViewState extends State<LoginView> {
       _isLoading = true;
     });
 
-    // --- UI Navigation Logic ---
-    // This simulates a successful login to allow you to test the UI flow.
-    // print('Simulating login API call...');
-    // await Future.delayed(const Duration(seconds: 1)); // Simulate network delay
-    // print('Simulated login success.');
-    //
-    // // Check if interests have been selected before
-    // final prefs = await SharedPreferences.getInstance();
-    // final bool interestsSelected = false;
-    // //final bool interestsSelected = prefs.getBool('interests_selected') ?? false;
-    //
-    // if (mounted) {
-    //   if (interestsSelected) {
-    //     _navigateToHome();
-    //   } else {
-    //     _navigateToInterests();
-    //   }
-    // }
-    //
-    // // When the loading is finished (either in success or failure), reset the state.
-    // if (mounted) {
-    //   setState(() {
-    //     _isLoading = false;
-    //   });
-    // }
-
-
     try {
       final email = _emailController.text.trim();
       final rollNo = _rollNoController.text.trim();
       final password = _passwordController.text;
 
-      final url = Uri.parse('http://192.168.0.100:3000/api/v1/student/signin');
+      final url = Uri.parse('http://192.168.0.110:3000/api/v1/student/signin');
 
       final body = json.encode({
         'email': email,
@@ -79,35 +54,32 @@ class _LoginViewState extends State<LoginView> {
         body: body,
       );
 
-      if (response.statusCode == 200) {
-        print(response.statusCode);
-        _navigateToInterests();
+      if (response.statusCode == 200 && mounted) {
+        print('Login Successful!');
         final responseData = json.decode(response.body);
 
-        //       // --- NAVIGATION LOGIC ---
-        //       // TODO: Your backend should return a flag like 'interests_selected'
-        //       final prefs = await SharedPreferences.getInstance();
-        //       final bool interestsSelected = prefs.getBool('interests_selected') ?? false;
-        //
-        //       if (context.mounted) {
-        //         if (interestsSelected) {
-        //           _navigateToHome();
-        //         } else {
-        //           _navigateToInterests();
-        //         }
-        //       }
-        //
-        //     } else {
-        //       print('Login failed with status: ${response.statusCode}');
-        //       ScaffoldMessenger.of(context).showSnackBar(
-        //         const SnackBar(content: Text('Login Failed. Please check your credentials.')),
-        //       );
-        //     }
-        //
-        // }
-      }
-      else {
-        // Handle failed login (e.g., wrong password)
+        // --- 3. EXTRACT AND SAVE THE TOKEN ---
+        final token = responseData['token'];
+        if (token != null) {
+          // Write value to secure storage
+          await _storage.write(key: 'auth_token', value: token);
+          print('Token saved successfully!');
+        }
+
+        // Save roll number to SharedPreferences (this is fine for non-sensitive data)
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('rollNo', rollNo);
+
+        final bool interestsHaveBeenSelected = responseData['interestsSelected'] ?? false;
+        await prefs.setBool('interests_selected', interestsHaveBeenSelected);
+
+        if (interestsHaveBeenSelected) {
+          _navigateToHome();
+        } else {
+          _navigateToInterests();
+        }
+
+      } else {
         print('Login failed with status: ${response.statusCode}');
         print('Response body: ${response.body}');
         if (mounted) {
@@ -116,13 +88,13 @@ class _LoginViewState extends State<LoginView> {
           );
         }
       }
-    }
-    catch (e) {
+    } catch (e) {
       print('An error occurred during login: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('An error occurred. Please try again later.')),
-      );
-
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('An error occurred. Please try again later.')),
+        );
+      }
     } finally {
       if (mounted) {
         setState(() {
@@ -144,7 +116,9 @@ class _LoginViewState extends State<LoginView> {
     );
   }
 
-  // Helper widget for the progress bar
+  // ... (The rest of your build method and other widgets remain unchanged) ...
+  // ... No changes needed for _buildProgressBar, build, or _buildTextField ...
+
   Widget _buildProgressBar(AlignmentGeometry alignment) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 40.0, vertical: 20.0),
@@ -322,4 +296,3 @@ class _LoginViewState extends State<LoginView> {
     );
   }
 }
-
