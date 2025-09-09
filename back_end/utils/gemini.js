@@ -16,34 +16,37 @@ function fileToGenerativePart(buffer, mimeType) {
  * Extracts student information from a PDF list.
  * @param {Buffer} pdfBuffer The buffer of the PDF file.
  * @param {string} mimeType The MIME type of the PDF.
- * @returns {Promise<Array<object>>} A promise resolving to an array of student objects.
+ * @returns {Promise<Array<object>>} A promise resolving to an array of user objects.
  */
 async function extractInfoFromPdf(pdfBuffer, mimeType) {
   try {
     const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
 
-    // --- PROMPT UPDATED FOR A LIST FORMAT ---
+    // --- PROMPT UPDATED TO INCLUDE userType ---
     const prompt = `
-      From the provided PDF document, which contains a list of students, extract the following information for each student:
+      From the provided PDF document, which contains a list of users, extract the following information for each person:
       1. Full Name (as "name")
-      2. Roll Number or Student ID (as "rollNo")
+      2. Roll Number or ID (as "rollNo")
       3. Email Address (as "email")
+      4. User Type (as "userType"). The userType must be either 'student' or 'admin'.
 
-      Please return the information ONLY in a valid JSON array format, where each object in the array represents one student.
+      Please return the information ONLY in a valid JSON array format, where each object in the array represents one user.
       Example format:
       [
         {
           "name": "John Doe",
           "rollNo": "CB.EN.U4XYZ21001",
-          "email": "john.doe@university.edu"
+          "email": "john.doe@university.edu",
+          "userType": "student"
         },
         {
-          "name": "Jane Smith",
-          "rollNo": "CB.EN.U4ABC21002",
-          "email": "jane.smith@university.edu"
+          "name": "Admin User",
+          "rollNo": "ADMIN01",
+          "email": "admin.user@university.edu",
+          "userType": "admin"
         }
       ]
-      If the document is empty or no student data can be found, return an empty array [].
+      If the document is empty or no user data can be found, return an empty array [].
       Do not include any other text, explanations, or markdown formatting around the JSON array.
     `;
     
