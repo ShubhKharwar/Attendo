@@ -7,7 +7,7 @@ class OnboardingScreen extends StatelessWidget {
 
   Future<void> _navigateToLogin(BuildContext context) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('onboarding_complete', false);
+    await prefs.setBool('onboarding_complete', true);
 
     if (context.mounted) {
       Navigator.of(context).pushReplacement(

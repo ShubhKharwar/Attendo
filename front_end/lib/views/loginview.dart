@@ -71,6 +71,7 @@ class _LoginViewState extends State<LoginView> {
         await prefs.setString('rollNo', rollNo);
 
         final bool interestsHaveBeenSelected = responseData['interestsSelected'] ?? false;
+        print(interestsHaveBeenSelected);
         await prefs.setBool('interests_selected', interestsHaveBeenSelected);
 
         if (interestsHaveBeenSelected) {
@@ -181,7 +182,7 @@ class _LoginViewState extends State<LoginView> {
                     const SizedBox(height: 20),
                     _buildTextField(
                       controller: _rollNoController,
-                      hintText: 'Roll No. (e.g., 24/cse/400)',
+                      hintText: 'Roll No./ID(for teachers)',
                       icon: Icons.school_outlined,
                     ),
                     const SizedBox(height: 20),

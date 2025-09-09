@@ -40,7 +40,7 @@ class _HomeScreenState extends State<HomeScreen> {
       }
 
       // Replace with your actual profile endpoint
-      final url = Uri.parse('http://192.168.0.110:3000/api/v1/student');
+      final url = Uri.parse('http://192.168.0.110:3000/api/v1/student/profile');
 
       final response = await http.get(
         url,
@@ -55,10 +55,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
         // IMPORTANT: Adjust the keys based on your backend's JSON response structure.
         // Example response: {"success": true, "student": {"name": "Anushka", "email": "..."}}
-        final studentData = data['student'];
 
         setState(() {
-          _userName = studentData['name'] ?? 'User'; // Use the fetched name
+          _userName = data['name'] ?? 'User'; // Use the fetched name
           // You can also fetch the next task here if it comes from the backend
           // _nextTask = data['next_task_from_ai_model'] ?? 'No tasks';
         });
@@ -73,7 +72,7 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     } catch (e) {
       print('An error occurred while fetching user data: $e');
-      if(mounted) setState(() => _userName = 'Error');
+      if(mounted) setState(() => _userName = 'Error2');
     }
   }
 
