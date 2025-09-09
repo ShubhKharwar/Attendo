@@ -10,12 +10,14 @@ class TeacherAttendancePage extends StatefulWidget {
 
 class _TeacherAttendancePageState extends State<TeacherAttendancePage> {
   final BeaconControl _beaconControl = BeaconControl();
-  final String beaconUuid = '74278bda-b644-4520-8f0c-720eaf059935'; // Replace as needed
+
+  // Example iBeacon UUID and IDs; replace if needed
+  final String beaconUuid = '74278bda-b644-4520-8f0c-720eaf059935';
   final int major = 1;
   final int minor = 101;
 
   Future<void> generate_qr() async {
-    // TODO: Your QR code generation logic will go here.
+    // TODO: Add your QR code generation logic here.
   }
 
   Future<void> _onGenerateQR() async {
@@ -36,13 +38,13 @@ class _TeacherAttendancePageState extends State<TeacherAttendancePage> {
         child: Column(
           children: [
             const SizedBox(height: 40),
-            // Scanner Icon
+            // QR code icon placeholder
             Expanded(
               child: Center(
                 child: Icon(
                   Icons.qr_code_scanner,
                   size: 180,
-                  color: Color(0xFF4CAF50),
+                  color: const Color(0xFF4CAF50),
                 ),
               ),
             ),
@@ -53,7 +55,7 @@ class _TeacherAttendancePageState extends State<TeacherAttendancePage> {
                 width: double.infinity,
                 child: ElevatedButton(
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: Color(0xFF4CAF50),
+                    backgroundColor: const Color(0xFF4CAF50),
                     padding: const EdgeInsets.symmetric(vertical: 18),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(28),
@@ -104,7 +106,7 @@ class StopAttendancePage extends StatelessWidget {
             const SizedBox(height: 60),
             Expanded(
               child: Center(
-                child: Icon(Icons.qr_code_scanner, size: 150, color: Color(0xFF4CAF50)),
+                child: Icon(Icons.qr_code_scanner, size: 150, color: const Color(0xFF4CAF50)),
               ),
             ),
             Padding(
