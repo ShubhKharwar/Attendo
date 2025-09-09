@@ -101,7 +101,8 @@ studentRouter.post("/interests", async (req, res) => {
 
     res.json({
       message: "Interests updated successfully",
-      interests: user.interests,
+      interests: updatedUser.interests,
+      interestsSelected: updatedUser.interestsSelected,
     });
   } catch (error) {
     console.error("Error updating interests:", error);
@@ -125,3 +126,4 @@ studentRouter.get('/profile' , auth ,  function(req , res){
 })
 
 module.exports = studentRouter;
+
