@@ -1,8 +1,9 @@
 import 'dart:async';
-import 'dart:convert'; // Import for json decoding
-import 'dart:ui'; // Import for ImageFilter
+import 'dart:convert';
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 class StudentScanPage extends StatefulWidget {
   const StudentScanPage({super.key});
@@ -14,6 +15,22 @@ class StudentScanPage extends StatefulWidget {
 class _StudentScanPageState extends State<StudentScanPage> {
   final MobileScannerController _scannerController = MobileScannerController();
   bool _isScanning = true;
+  PermissionStatus? _permissionStatus;
+
+  @override
+  void initState() {
+    super.initState();
+    _requestCameraPermission();
+  }
+
+  Future<void> _requestCameraPermission() async {
+    final status = await Permission.camera.request();
+    if (mounted) {
+      setState(() {
+        _permissionStatus = status;
+      });
+    }
+  }
 
   @override
   void dispose() {
@@ -23,6 +40,8 @@ class _StudentScanPageState extends State<StudentScanPage> {
 
   void _showSnackbar(String message, {bool isError = false}) {
     if (!mounted) return;
+    // Hide any currently displayed snackbar before showing a new one
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
@@ -36,17 +55,18 @@ class _StudentScanPageState extends State<StudentScanPage> {
 
   void _onDetect(BarcodeCapture capture) async {
     if (!_isScanning) return;
-    setState(() => _isScanning = false); // Stop processing further scans
+    setState(() => _isScanning = false);
 
     final String? qrCodeData = capture.barcodes.first.rawValue;
     if (qrCodeData == null) {
       _showSnackbar("Failed to read QR code.", isError: true);
-      setState(() => _isScanning = true); // Re-enable scanning
+      // --- FIX: Add cooldown for read failure ---
+      await Future.delayed(const Duration(seconds: 3));
+      if (mounted) setState(() => _isScanning = true);
       return;
     }
 
     try {
-      // --- NEW LOGIC: PARSE QR CODE DATA ---
       final data = jsonDecode(qrCodeData);
       final sessionId = data['sessionId'];
       final subjectCode = data['subjectCode'];
@@ -55,28 +75,69 @@ class _StudentScanPageState extends State<StudentScanPage> {
         throw const FormatException("Missing required data in QR code.");
       }
 
-      // Print the extracted data to the console
       print("✅ Successfully scanned QR Code:");
       print("   Session ID: $sessionId");
       print("   Subject Code: $subjectCode");
 
-      // Show success snackbar
       _showSnackbar("Attendance Marked Successfully!");
-
-      // After a short delay, go back to the previous screen
       await Future.delayed(const Duration(seconds: 2));
       if (mounted) Navigator.of(context).pop();
 
     } catch (e) {
-      // This will catch JSON parsing errors or missing keys
       print("❌ QR Code Error: $e");
       _showSnackbar("Invalid QR code format. Please try again.", isError: true);
-      setState(() => _isScanning = true); // Allow the user to try again
+
+      // --- FIX: THIS IS THE KEY CHANGE ---
+      // Introduce a cooldown period before allowing another scan.
+      // This gives the snackbar time to disappear.
+      await Future.delayed(const Duration(seconds: 4));
+      if (mounted) {
+        setState(() => _isScanning = true);
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    // --- Camera Permission Handling UI ---
+    if (_permissionStatus == null) {
+      return const Scaffold(
+        backgroundColor: Colors.black,
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (_permissionStatus != PermissionStatus.granted) {
+      return Scaffold(
+        backgroundColor: Colors.black,
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24.0),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Text('Camera Permission Needed', style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 16),
+                const Text('This app needs camera access to scan QR codes.', style: TextStyle(color: Colors.white70, fontSize: 16), textAlign: TextAlign.center),
+                const SizedBox(height: 24),
+                ElevatedButton(
+                  onPressed: () async {
+                    if (await Permission.camera.isPermanentlyDenied) {
+                      openAppSettings();
+                    } else {
+                      _requestCameraPermission();
+                    }
+                  },
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+                  child: const Text('Grant Permission'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
     final scanWindow = Rect.fromCenter(
       center: MediaQuery.of(context).size.center(Offset.zero),
       width: 250,
@@ -96,16 +157,10 @@ class _StudentScanPageState extends State<StudentScanPage> {
           ValueListenableBuilder(
             valueListenable: _scannerController,
             builder: (context, state, child) {
-              if (!state.isInitialized || !state.isRunning) {
-                return const SizedBox.shrink();
-              }
+              if (!state.isInitialized || !state.isRunning) return const SizedBox.shrink();
               return IconButton(
                 color: Colors.white,
-                icon: Icon(
-                  state.torchState == TorchState.on
-                      ? Icons.flashlight_on
-                      : Icons.flashlight_off,
-                ),
+                icon: Icon(state.torchState == TorchState.on ? Icons.flashlight_on : Icons.flashlight_off),
                 onPressed: () => _scannerController.toggleTorch(),
               );
             },
@@ -123,7 +178,6 @@ class _StudentScanPageState extends State<StudentScanPage> {
           ClipPath(
             clipper: ScannerOverlayClipper(scanWindow),
             child: BackdropFilter(
-              // Increased blur values for a stronger effect
               filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
               child: Container(
                 color: Colors.black.withOpacity(0.5),
@@ -135,8 +189,7 @@ class _StudentScanPageState extends State<StudentScanPage> {
               width: scanWindow.width,
               height: scanWindow.height,
               decoration: BoxDecoration(
-                border: Border.all(
-                    color: Colors.greenAccent.withOpacity(0.8), width: 3),
+                border: Border.all(color: Colors.greenAccent.withOpacity(0.8), width: 3),
                 borderRadius: BorderRadius.circular(16),
               ),
             ),
@@ -156,10 +209,9 @@ class ScannerOverlayClipper extends CustomClipper<Path> {
     return Path.combine(
       PathOperation.difference,
       Path()..addRect(Rect.fromLTWH(0, 0, size.width, size.height)),
-      Path()
-        ..addRRect(RRect.fromRectAndRadius(
-            scanWindow, const Radius.circular(16)))
-        ..close(),
+      // --- FIX: Removed the redundant .close() call ---
+      Path()..addRRect(RRect.fromRectAndRadius(
+          scanWindow, const Radius.circular(16))),
     );
   }
 

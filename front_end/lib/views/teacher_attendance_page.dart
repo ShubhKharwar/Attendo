@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:uuid/uuid.dart';
 import 'beacon_control.dart';
-
+import 'loginview.dart'; // Import for navigation
 
 class TeacherAttendancePage extends StatefulWidget {
   const TeacherAttendancePage({Key? key}) : super(key: key);
@@ -14,27 +15,30 @@ class TeacherAttendancePage extends StatefulWidget {
 class _TeacherAttendancePageState extends State<TeacherAttendancePage> {
   final BeaconControl _beaconControl = BeaconControl();
   final Uuid _uuid = const Uuid();
+  final _storage = const FlutterSecureStorage(); // Instance for secure storage
 
   // Example iBeacon UUID and IDs; replace if needed
   final String beaconUuid = '74278bda-b644-4520-8f0c-720eaf059935';
   final int major = 1;
   final int minor = 101;
 
+  /// Deletes the auth token and navigates back to the login screen.
+  Future<void> _logout() async {
+    await _storage.delete(key: 'auth_token');
+    if (mounted) {
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (context) => const LoginView()),
+            (Route<dynamic> route) => false,
+      );
+    }
+  }
+
   /// Generates a unique session ID, starts the beacon, and navigates to the
   /// page that displays the QR code.
   Future<void> _onGenerateQR() async {
-    // Generate a unique identifier for the attendance session.
-    // This data will be embedded in the QR code.
     final String sessionQrData = _uuid.v4();
-
-    // Start broadcasting the beacon signal for this session.
     await _beaconControl.startBeacon(beaconUuid, major, minor);
-
-    // Ensure the widget is still mounted before navigating.
     if (!mounted) return;
-
-    // Navigate to the next screen to display the QR code and the stop button.
-    // The session data is passed to the next page.
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -47,11 +51,23 @@ class _TeacherAttendancePageState extends State<TeacherAttendancePage> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
+      appBar: AppBar(
+        title:
+        const Text("Admin Dashboard", style: TextStyle(color: Colors.white)),
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        automaticallyImplyLeading: false, // Hide the back button
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.logout, color: Colors.white),
+            tooltip: 'Logout',
+            onPressed: _logout,
+          ),
+        ],
+      ),
       body: SafeArea(
         child: Column(
           children: [
-            const SizedBox(height: 40),
-            // A placeholder icon to represent QR code generation
             const Expanded(
               child: Center(
                 child: Icon(
@@ -61,9 +77,9 @@ class _TeacherAttendancePageState extends State<TeacherAttendancePage> {
                 ),
               ),
             ),
-            // Generate QR Button
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 32),
+              padding:
+              const EdgeInsets.symmetric(horizontal: 24.0, vertical: 32),
               child: SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
@@ -100,37 +116,58 @@ class _TeacherAttendancePageState extends State<TeacherAttendancePage> {
   }
 }
 
-/// This page displays the generated QR code for the attendance session
-/// and provides a button to stop the session.
 class StopAttendancePage extends StatelessWidget {
   final String qrData;
 
   const StopAttendancePage({Key? key, required this.qrData}) : super(key: key);
 
-  /// Stops the beacon broadcast and pops the current page to end the session.
   Future<void> _onStopAttendance(BuildContext context) async {
     final beaconControl = BeaconControl();
     await beaconControl.stopBeacon();
     if (context.mounted) Navigator.pop(context);
   }
 
+  /// The same logout logic, self-contained for this stateless widget.
+  Future<void> _logout(BuildContext context) async {
+    final storage = const FlutterSecureStorage();
+    await storage.delete(key: 'auth_token');
+    if (context.mounted) {
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (context) => const LoginView()),
+            (Route<dynamic> route) => false,
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
+      appBar: AppBar(
+        title: const Text("Attendance Session",
+            style: TextStyle(color: Colors.white)),
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        // Hide the default back button
+        automaticallyImplyLeading: false,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.logout, color: Colors.white),
+            tooltip: 'Logout',
+            onPressed: () => _logout(context),
+          ),
+        ],
+      ),
       body: SafeArea(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             const Spacer(),
-            // Display the live QR code
             Center(
-              // The QrImageView widget from the qr_flutter package renders the QR code.
               child: QrImageView(
                 data: qrData,
                 version: QrVersions.auto,
                 size: 220.0,
-                // Add a white background to the QR code for better scannability.
                 backgroundColor: Colors.white,
                 gapless: false,
               ),
@@ -141,9 +178,9 @@ class StopAttendancePage extends StatelessWidget {
               style: TextStyle(color: Colors.white70, fontSize: 16),
             ),
             const Spacer(),
-            // Stop Attendance Button
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 32),
+              padding:
+              const EdgeInsets.symmetric(horizontal: 24.0, vertical: 32),
               child: SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
@@ -172,3 +209,4 @@ class StopAttendancePage extends StatelessWidget {
     );
   }
 }
+

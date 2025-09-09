@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
-import 'home.dart';
+import 'home.dart'; // Assuming home.dart is now home_screen.dart from previous context
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'interests_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'teacher_attendance_page.dart'; // Import the new page
 
 class LoginView extends StatefulWidget {
   const LoginView({super.key});
@@ -40,11 +41,12 @@ class _LoginViewState extends State<LoginView> {
       final rollNo = _rollNoController.text.trim();
       final password = _passwordController.text;
 
+      // Note: Your backend should handle both student and admin logins at this endpoint
       final url = Uri.parse('http://192.168.0.110:3000/api/v1/student/signin');
 
       final body = json.encode({
         'email': email,
-        'rollNo': rollNo,
+        'rollNo': rollNo, // The backend should interpret this as an ID for teachers
         'password': password,
       });
 
@@ -58,34 +60,45 @@ class _LoginViewState extends State<LoginView> {
         print('Login Successful!');
         final responseData = json.decode(response.body);
 
-        // --- 3. EXTRACT AND SAVE THE TOKEN ---
+        // --- 1. SAVE THE TOKEN ---
         final token = responseData['token'];
         if (token != null) {
-          // Write value to secure storage
           await _storage.write(key: 'auth_token', value: token);
           print('Token saved successfully!');
+        } else {
+          throw Exception('Token not found in response');
         }
 
-        // Save roll number to SharedPreferences (this is fine for non-sensitive data)
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setString('rollNo', rollNo);
+        // --- 2. CHECK USER TYPE AND NAVIGATE ---
+        final userType = responseData['userType']; // Expecting 'student' or 'admin'
 
-        final bool interestsHaveBeenSelected = responseData['interestsSelected'] ?? false;
-        print(interestsHaveBeenSelected);
-        await prefs.setBool('interests_selected', interestsHaveBeenSelected);
+        if (userType == 'student') {
+          // Logic for students
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString('rollNo', rollNo);
 
-        if (interestsHaveBeenSelected) {
-          _navigateToHome();
+          final bool interestsHaveBeenSelected = responseData['interestsSelected'] ?? false;
+          await prefs.setBool('interests_selected', interestsHaveBeenSelected);
+
+          if (interestsHaveBeenSelected) {
+            _navigateToHome();
+          } else {
+            _navigateToInterests();
+          }
+        } else if (userType == 'admin') {
+          // Logic for admins/teachers
+          _navigateToTeacherAttendance();
         } else {
-          _navigateToInterests();
+          // Handle cases where userType is missing or invalid
+          throw Exception('Invalid user type received from server');
         }
 
       } else {
+        final errorMsg = json.decode(response.body)['message'] ?? 'Please check your credentials.';
         print('Login failed with status: ${response.statusCode}');
-        print('Response body: ${response.body}');
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Login Failed. Please check your credentials.')),
+            SnackBar(content: Text('Login Failed: $errorMsg')),
           );
         }
       }
@@ -117,31 +130,14 @@ class _LoginViewState extends State<LoginView> {
     );
   }
 
-  // ... (The rest of your build method and other widgets remain unchanged) ...
-  // ... No changes needed for _buildProgressBar, build, or _buildTextField ...
-
-  Widget _buildProgressBar(AlignmentGeometry alignment) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 40.0, vertical: 20.0),
-      child: Container(
-        height: 8,
-        decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.3),
-          borderRadius: BorderRadius.circular(4),
-        ),
-        alignment: alignment,
-        child: Container(
-          width: 100,
-          height: 8,
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(4),
-          ),
-        ),
-      ),
+  // --- NEW NAVIGATION FUNCTION FOR ADMINS ---
+  void _navigateToTeacherAttendance() {
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(builder: (_) => const TeacherAttendancePage()),
     );
   }
 
+  // ... (The rest of your build method and other widgets remain unchanged) ...
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -167,7 +163,7 @@ class _LoginViewState extends State<LoginView> {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      "Login to Your Account to Continue your Courses",
+                      "Login to Your Account to Continue",
                       style: TextStyle(
                         color: Colors.grey[400],
                         fontSize: 16,
@@ -263,6 +259,28 @@ class _LoginViewState extends State<LoginView> {
     );
   }
 
+  Widget _buildProgressBar(AlignmentGeometry alignment) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 40.0, vertical: 20.0),
+      child: Container(
+        height: 8,
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.3),
+          borderRadius: BorderRadius.circular(4),
+        ),
+        alignment: alignment,
+        child: Container(
+          width: 100,
+          height: 8,
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(4),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildTextField({
     required TextEditingController controller,
     required String hintText,
@@ -297,3 +315,4 @@ class _LoginViewState extends State<LoginView> {
     );
   }
 }
+
