@@ -48,6 +48,7 @@ const userSchema = new mongoose.Schema(
     //     status: { type: String, enum: ["present"], default: "present" }, // can be extended
     //   },
     // ],
+    SubjectsInfo : [],
     attendanceLog:[],
     lastSessionId: { type: String, default: null }, // Track last session to prevent duplicates
     presentDays: { type: Number, default: 0 },
