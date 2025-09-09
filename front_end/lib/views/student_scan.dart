@@ -40,6 +40,8 @@ class _StudentScanPageState extends State<StudentScanPage> {
 
   void _showSnackbar(String message, {bool isError = false}) {
     if (!mounted) return;
+    // Hide any currently displayed snackbar before showing a new one
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
@@ -58,7 +60,9 @@ class _StudentScanPageState extends State<StudentScanPage> {
     final String? qrCodeData = capture.barcodes.first.rawValue;
     if (qrCodeData == null) {
       _showSnackbar("Failed to read QR code.", isError: true);
-      setState(() => _isScanning = true);
+      // --- FIX: Add cooldown for read failure ---
+      await Future.delayed(const Duration(seconds: 3));
+      if (mounted) setState(() => _isScanning = true);
       return;
     }
 
@@ -76,19 +80,26 @@ class _StudentScanPageState extends State<StudentScanPage> {
       print("   Subject Code: $subjectCode");
 
       _showSnackbar("Attendance Marked Successfully!");
-
       await Future.delayed(const Duration(seconds: 2));
       if (mounted) Navigator.of(context).pop();
 
     } catch (e) {
       print("❌ QR Code Error: $e");
       _showSnackbar("Invalid QR code format. Please try again.", isError: true);
-      setState(() => _isScanning = true);
+
+      // --- FIX: THIS IS THE KEY CHANGE ---
+      // Introduce a cooldown period before allowing another scan.
+      // This gives the snackbar time to disappear.
+      await Future.delayed(const Duration(seconds: 4));
+      if (mounted) {
+        setState(() => _isScanning = true);
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    // --- Camera Permission Handling UI ---
     if (_permissionStatus == null) {
       return const Scaffold(
         backgroundColor: Colors.black,
@@ -105,16 +116,9 @@ class _StudentScanPageState extends State<StudentScanPage> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                const Text(
-                  'Camera Permission Needed',
-                  style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold),
-                ),
+                const Text('Camera Permission Needed', style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 16),
-                const Text(
-                  'This app needs access to your camera to scan QR codes for attendance.',
-                  style: TextStyle(color: Colors.white70, fontSize: 16),
-                  textAlign: TextAlign.center,
-                ),
+                const Text('This app needs camera access to scan QR codes.', style: TextStyle(color: Colors.white70, fontSize: 16), textAlign: TextAlign.center),
                 const SizedBox(height: 24),
                 ElevatedButton(
                   onPressed: () async {
@@ -145,7 +149,6 @@ class _StudentScanPageState extends State<StudentScanPage> {
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        // Back button on the top left
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white),
           onPressed: () => Navigator.of(context).pop(),
@@ -154,17 +157,10 @@ class _StudentScanPageState extends State<StudentScanPage> {
           ValueListenableBuilder(
             valueListenable: _scannerController,
             builder: (context, state, child) {
-              if (!state.isInitialized || !state.isRunning) {
-                return const SizedBox.shrink();
-              }
+              if (!state.isInitialized || !state.isRunning) return const SizedBox.shrink();
               return IconButton(
-                // Explicitly setting the icon color to white
                 color: Colors.white,
-                icon: Icon(
-                  state.torchState == TorchState.on
-                      ? Icons.flashlight_on
-                      : Icons.flashlight_off,
-                ),
+                icon: Icon(state.torchState == TorchState.on ? Icons.flashlight_on : Icons.flashlight_off),
                 onPressed: () => _scannerController.toggleTorch(),
               );
             },
@@ -179,7 +175,6 @@ class _StudentScanPageState extends State<StudentScanPage> {
             onDetect: _onDetect,
             scanWindow: scanWindow,
           ),
-          // This BackdropFilter creates the blur effect. It must be inside a ClipPath to work correctly.
           ClipPath(
             clipper: ScannerOverlayClipper(scanWindow),
             child: BackdropFilter(
@@ -194,8 +189,7 @@ class _StudentScanPageState extends State<StudentScanPage> {
               width: scanWindow.width,
               height: scanWindow.height,
               decoration: BoxDecoration(
-                border: Border.all(
-                    color: Colors.greenAccent.withOpacity(0.8), width: 3),
+                border: Border.all(color: Colors.greenAccent.withOpacity(0.8), width: 3),
                 borderRadius: BorderRadius.circular(16),
               ),
             ),
@@ -215,10 +209,9 @@ class ScannerOverlayClipper extends CustomClipper<Path> {
     return Path.combine(
       PathOperation.difference,
       Path()..addRect(Rect.fromLTWH(0, 0, size.width, size.height)),
-      Path()
-        ..addRRect(RRect.fromRectAndRadius(
-            scanWindow, const Radius.circular(16)))
-        ..close(),
+      // --- FIX: Removed the redundant .close() call ---
+      Path()..addRRect(RRect.fromRectAndRadius(
+          scanWindow, const Radius.circular(16))),
     );
   }
 
