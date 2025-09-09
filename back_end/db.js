@@ -12,6 +12,11 @@ const userSchema = new mongoose.Schema({
         trim: true,
         unique: true
     },
+    name:{
+        type:String,
+        required: true,
+        trim:true
+    },
     email: {
         type: String,
         required: [true, 'Email is required.'],
@@ -24,7 +29,9 @@ const userSchema = new mongoose.Schema({
         type: String,
         required: [true, 'Password is required.']
     },
-    interests: {type:[String],default:[]}
+    interests: {type:[String],default:[]},
+    interestsSelected: { type: Boolean, default: false }
+
 }, {
     timestamps: true
 });
