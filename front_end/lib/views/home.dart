@@ -214,7 +214,7 @@ class _HomeScreenState extends State<HomeScreen> {
         // --- NAVIGATION CHANGE HERE ---
         Navigator.push(
           context,
-          MaterialPageRoute(builder: (context) => const StudentScanPage()),
+          MaterialPageRoute(builder: (context) => const ScanningPage()),
         );
       },
       child: Row(
@@ -339,7 +339,7 @@ class _HomeScreenState extends State<HomeScreen> {
               // --- NAVIGATION CHANGE HERE ---
               Navigator.push(
                 context,
-                MaterialPageRoute(builder: (context) => const StudentScanPage()),
+                MaterialPageRoute(builder: (context) => const ScanningPage()),
               );
             },
             child: Container(
