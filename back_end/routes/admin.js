@@ -40,15 +40,18 @@ adminRouter.post('/upload', upload.single('studentListPdf'), async (req, res) =>
         const invalidEntries = [];
 
         for (const entry of extractedDataArray) {
-            if (entry.rollNo && entry.email) {
+            // UPDATED: Now also validating that 'name' is present
+            if (entry.rollNo && entry.email && entry.name) {
                 const password = generatePassword();
                 validUsersToProcess.push({
                     rollNo: entry.rollNo,
+                    name: entry.name, // ADDED: Include the name in the user document
                     email: entry.email,
                     password: password // Plain text password
                 });
             } else {
-                invalidEntries.push({ reason: 'Missing required fields (rollNo or email).', data: entry });
+                // UPDATED: Error message reflects the new requirement for 'name'
+                invalidEntries.push({ reason: 'Missing required fields (rollNo, name, or email).', data: entry });
             }
         }
 

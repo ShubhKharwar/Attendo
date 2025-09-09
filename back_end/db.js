@@ -6,6 +6,7 @@ const SALT_WORK_FACTOR = 10; // The cost factor for hashing
 // --- User Schema ---
 // This structure holds the permanent student data.
 const userSchema = new mongoose.Schema({
+    
     rollNo: {
         type: String,
         required: [true, 'Roll Number is required.'],
@@ -52,20 +53,6 @@ userSchema.pre('save', async function(next) {
 userSchema.methods.comparePassword = function(candidatePassword) {
     return bcrypt.compare(candidatePassword, this.password);
 };
-
-
-userSchema.pre('save', async function(next) {
-    // Only hash the password if it has been modified (or is new)
-    if (!this.isModified('password')) return next();
-
-    try {
-        // Hash the password along with our new salt
-        this.password = await bcrypt.hash(this.password, salt);
-        next();
-    } catch (err) {
-        next(err);
-    }
-});
 
 
 const User = mongoose.model('User', userSchema);
