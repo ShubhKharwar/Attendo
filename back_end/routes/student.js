@@ -52,7 +52,6 @@ studentRouter.post("/signin", async (req, res) => {
     // 4. If password matches, create JWT payload
     const payload = {
       name : user.name,
-      interestsSelected : user.interestsSelected,
       rollNo: user.rollNo,
     };
 
@@ -62,6 +61,7 @@ studentRouter.post("/signin", async (req, res) => {
     // 6. Send token to client
     res.status(200).json({
       message: "Signed in successfully.",
+      interestsSelected : user.interestsSelected,
       token: token,
     });
   } catch (error) {
