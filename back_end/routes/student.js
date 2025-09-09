@@ -2,6 +2,7 @@ const { Router } = require("express");
 const { z } = require("zod");
 const jwt = require("jsonwebtoken");
 const { User } = require("../db");
+const { auth } = require("../auth");
 require("dotenv").config();
 
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -10,7 +11,7 @@ const studentRouter = Router();
 // --- Zod Schema for Input Validation ---
 // The signup schema has been removed as it's no longer needed.
 const signinSchema = z.object({
-  email: z.email(),
+  email: z.string().email(),
   rollNo: z.string().min(1, { message: "Roll number is required." }),
   password: z.string().min(8, { message: "Password is required." }),
 });
@@ -81,17 +82,6 @@ studentRouter.post("/interests", async (req, res) => {
         .json({ message: "rollNo and interests array are required" });
     }
 
-    // // Update user interests
-    // const user = await User.findOneAndUpdate(
-    //   { rollNo },
-    //   { $set: { interests } },
-    //   { new: true }
-    // );
-
-    // if (!user) {
-    //   return res.status(404).json({ message: 'User not found' });
-    // }
-
     const user = await User.findOne({ rollNo });
 
     if (!user) {
@@ -118,5 +108,20 @@ studentRouter.post("/interests", async (req, res) => {
     res.status(500).json({ message: "Internal server error" });
   }
 });
+
+studentRouter.get('/profile' , auth ,  function(req , res){
+    // The 'auth' middleware decodes the JWT and attaches the payload to req.user.
+    // The payload contains the user's name as defined in the /signin route.
+    const userName = req.user.name;
+
+    if (!userName) {
+        return res.status(400).json({ message: "User name not found in token." });
+    }
+
+    // Return the name from the token payload
+    res.status(200).json({
+        name: userName
+    });
+})
 
 module.exports = studentRouter;
