@@ -1,8 +1,10 @@
+import 'package:attendo/views/teacher_attendance_page.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'views/onboardingscreen.dart';
 import 'views/home.dart';
 import 'views/interests_screen.dart';
+import 'views/teacher_attendance_page.dart';
 
 // Global variable to store the onboarding status
 bool showOnboarding = true;
@@ -35,7 +37,7 @@ class MyApp extends StatelessWidget {
         scaffoldBackgroundColor: Colors.black, // Consistent background
       ),
       // If onboarding is not complete, show the OnboardingScreen, otherwise show the HomeScreen
-      home: OnboardingScreen(),
+      home: TeacherAttendancePage(),
       //showOnboarding ? const OnboardingScreen() : const HomeScreen()
     );
   }
