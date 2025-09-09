@@ -30,6 +30,12 @@ const userSchema = new mongoose.Schema(
       type: String,
       required: [true, "Password is required."],
     },
+    userType: {
+        type: String,
+        enum: ['student', 'admin'],
+        required: [true, 'User type is required.'],
+        default: 'student'
+    },
     interests: { type: [String], default: [] },
     interestsSelected: { type: Boolean, default: false },
     attendanceLog: [
