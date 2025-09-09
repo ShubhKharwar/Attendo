@@ -30,15 +30,23 @@ const userSchema = new mongoose.Schema(
       type: String,
       required: [true, "Password is required."],
     },
+    userType: {
+        type: String,
+        enum: ['student', 'admin'],
+        required: [true, 'User type is required.'],
+        default: 'student'
+    },
     interests: { type: [String], default: [] },
     interestsSelected: { type: Boolean, default: false },
-    attendanceLog: [
-      {
-        sessionId: String, // uniquely identifies the session (e.g., a UUID from the QR)
-        markedAt: Date, // when attendance was marked
-        status: { type: String, enum: ["present"], default: "present" }, // can be extended
-      },
-    ],
+    // attendanceLog: [
+    //   {
+    //     sessionId: String, // uniquely identifies the session (e.g., a UUID from the QR)
+    //     markedAt: Date, // when attendance was marked
+    //     status: { type: String, enum: ["present"], default: "present" }, // can be extended
+    //   },
+    // ],
+    attendanceLog:[],
+    lastlastSessionId: { type: String, default: null }, // Track last session to prevent duplicates
     presentDays: { type: Number, default: 0 },
     totalDays: { type: Number, default: 0 },
   },

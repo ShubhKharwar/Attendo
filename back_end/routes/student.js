@@ -63,6 +63,7 @@ studentRouter.post("/signin", async (req, res) => {
     res.status(200).json({
       message: "Signed in successfully.",
       interestsSelected : user.interestsSelected,
+      userType : user.userType,
       token: token,
     });
   } catch (error) {

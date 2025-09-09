@@ -40,18 +40,24 @@ adminRouter.post('/upload', upload.single('studentListPdf'), async (req, res) =>
         const invalidEntries = [];
 
         for (const entry of extractedDataArray) {
-            // UPDATED: Now also validating that 'name' is present
-            if (entry.rollNo && entry.email && entry.name) {
+            // --- CHANGED: Now also validating that 'userType' is present and valid ---
+            const isValidUserType = entry.userType && ['student', 'admin'].includes(entry.userType);
+
+            if (entry.rollNo && entry.email && entry.name && isValidUserType) {
                 const password = generatePassword();
                 validUsersToProcess.push({
                     rollNo: entry.rollNo,
-                    name: entry.name, // ADDED: Include the name in the user document
+                    name: entry.name,
                     email: entry.email,
+                    userType: entry.userType, // --- ADDED: Include the userType in the document ---
                     password: password // Plain text password
                 });
             } else {
-                // UPDATED: Error message reflects the new requirement for 'name'
-                invalidEntries.push({ reason: 'Missing required fields (rollNo, name, or email).', data: entry });
+                // --- CHANGED: Updated error message for clarity ---
+                invalidEntries.push({ 
+                    reason: 'Missing required fields or invalid userType. Fields required: rollNo, name, email, userType (\'student\' or \'admin\').', 
+                    data: entry 
+                });
             }
         }
 
@@ -62,7 +68,8 @@ adminRouter.post('/upload', upload.single('studentListPdf'), async (req, res) =>
             });
         }
         
-        // --- THIS ENTIRE DATABASE BLOCK IS REPLACED ---
+        // --- THIS ENTIRE DATABASE BLOCK REMAINS THE SAME ---
+        // It will now correctly process the 'userType' field present in 'validUsersToProcess'
         const createdUsers = [];
         const failedInserts = [];
         const tempPasswordsToStore = [];
@@ -70,7 +77,7 @@ adminRouter.post('/upload', upload.single('studentListPdf'), async (req, res) =>
         // Loop and create each user individually to trigger the 'save' hook
         for (const userDoc of validUsersToProcess) {
             try {
-                // User.create() will trigger the pre-save hook that hashes the password
+                // User.create() will now save the userType along with other fields
                 const newUser = await User.create(userDoc);
                 createdUsers.push(newUser);
                 // Only store temp passwords for successfully created users
@@ -82,7 +89,7 @@ adminRouter.post('/upload', upload.single('studentListPdf'), async (req, res) =>
                         data: userDoc 
                     });
                 } else {
-                    // Handle other validation errors
+                    // Handle other validation errors (e.g., if userType was something other than 'student' or 'admin')
                     failedInserts.push({ reason: error.message, data: userDoc });
                 }
             }
@@ -98,7 +105,7 @@ adminRouter.post('/upload', upload.single('studentListPdf'), async (req, res) =>
             }
         }
         
-        // Send a final response based on the outcome
+        // --- RESPONSE LOGIC REMAINS THE SAME ---
         if (failedInserts.length > 0 && createdUsers.length > 0) {
             return res.status(207).json({
                 message: `Partial success. ${createdUsers.length} new user(s) were created.`,
