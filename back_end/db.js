@@ -32,13 +32,14 @@ const userSchema = new mongoose.Schema(
     },
     interests: { type: [String], default: [] },
     interestsSelected: { type: Boolean, default: false },
-    attendanceLog: [
-      {
-        sessionId: String, // uniquely identifies the session (e.g., a UUID from the QR)
-        markedAt: Date, // when attendance was marked
-        status: { type: String, enum: ["present"], default: "present" }, // can be extended
-      },
-    ],
+    // attendanceLog: [
+    //   {
+    //     sessionId: String, // uniquely identifies the session (e.g., a UUID from the QR)
+    //     markedAt: Date, // when attendance was marked
+    //     status: { type: String, enum: ["present"], default: "present" }, // can be extended
+    //   },
+    // ],
+    attendanceLog:[],
     presentDays: { type: Number, default: 0 },
     totalDays: { type: Number, default: 0 },
   },
