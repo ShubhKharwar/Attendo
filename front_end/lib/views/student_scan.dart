@@ -24,6 +24,9 @@ class _ScanningPageState extends State<ScanningPage> {
   bool _isProcessing = false;
   PermissionStatus? _cameraPermission;
   PermissionStatus? _bluetoothPermission;
+  PermissionStatus? _locationPermission;
+  bool _isLocationServiceEnabled = false;
+  Timer? _locationCheckTimer;
 
   String? _scannedSessionId;
   String? _scannedSubject;
@@ -31,29 +34,61 @@ class _ScanningPageState extends State<ScanningPage> {
   @override
   void initState() {
     super.initState();
-    _requestPermissions();
+    _checkAndRequestPermissions();
   }
 
-  Future<void> _requestPermissions() async {
+  Future<void> _checkAndRequestPermissions() async {
+    final serviceStatus = await Permission.location.serviceStatus;
+    final isGpsOn = serviceStatus == ServiceStatus.enabled;
+    if (mounted) {
+      setState(() {
+        _isLocationServiceEnabled = isGpsOn;
+      });
+    }
+
+    if (!isGpsOn) {
+      print("Location service is disabled. Starting periodic checker.");
+      _startLocationServiceChecker();
+      return;
+    }
+
+    _locationCheckTimer?.cancel();
+
     Map<Permission, PermissionStatus> statuses = await [
       Permission.camera,
       Permission.bluetoothScan,
       Permission.bluetoothConnect,
+      Permission.locationWhenInUse,
     ].request();
 
     if (mounted) {
       setState(() {
         _cameraPermission = statuses[Permission.camera];
         _bluetoothPermission = statuses[Permission.bluetoothScan];
+        _locationPermission = statuses[Permission.locationWhenInUse];
       });
     }
   }
 
+  void _startLocationServiceChecker() {
+    _locationCheckTimer?.cancel();
+    _locationCheckTimer =
+        Timer.periodic(const Duration(seconds: 3), (timer) async {
+          print("Checking location service status...");
+          final serviceStatus = await Permission.location.serviceStatus;
+          if (serviceStatus == ServiceStatus.enabled) {
+            print("Location service has been enabled by the user.");
+            timer.cancel();
+            await _checkAndRequestPermissions();
+          }
+        });
+  }
+
   @override
   void dispose() {
-    // Ensure the scan is stopped when the page is disposed
     FlutterBluePlus.stopScan();
     _scannerController.dispose();
+    _locationCheckTimer?.cancel();
     super.dispose();
   }
 
@@ -132,7 +167,9 @@ class _ScanningPageState extends State<ScanningPage> {
       bool beaconFound = await _searchForTeacherBeacon();
 
       if (!beaconFound) {
-        _showSnackbar("You are not close enough to the teacher. Please move closer.", isError: true);
+        _showSnackbar(
+            "You are not close enough to the teacher. Please move closer.",
+            isError: true);
         await Future.delayed(const Duration(seconds: 3));
         if (mounted) {
           setState(() {
@@ -174,9 +211,12 @@ class _ScanningPageState extends State<ScanningPage> {
 
       subscription = FlutterBluePlus.scanResults.listen((results) {
         for (ScanResult result in results) {
+          print(
+              '   [DEBUG] Found device: ${result.device.remoteId} with RSSI: ${result.rssi}');
           bool isTeacherBeacon = _isMatchingBeacon(result, targetUuid);
           if (isTeacherBeacon) {
-            print('✅ Found our beacon pattern from device: ${result.device.remoteId}');
+            print(
+                '✅ Found our beacon pattern from device: ${result.device.remoteId}');
             if (result.rssi > -70) {
               print("   RSSI is strong enough: ${result.rssi}");
               if (!completer.isCompleted) {
@@ -189,11 +229,11 @@ class _ScanningPageState extends State<ScanningPage> {
         }
       });
 
-      return await completer.future.timeout(const Duration(seconds: 8), onTimeout: () {
+      return await completer.future
+          .timeout(const Duration(seconds: 8), onTimeout: () {
         print("⏰ Beacon scan timed out. No matching beacon found in proximity.");
         return false;
       });
-
     } catch (e) {
       print("❌ Beacon search error: $e");
       return false;
@@ -208,7 +248,9 @@ class _ScanningPageState extends State<ScanningPage> {
     final manufacturerData = result.advertisementData.manufacturerData;
     if (manufacturerData.containsKey(76)) {
       final beaconData = manufacturerData[76]!;
-      if (beaconData.length >= 23 && beaconData[0] == 0x02 && beaconData[1] == 0x15) {
+      if (beaconData.length >= 23 &&
+          beaconData[0] == 0x02 &&
+          beaconData[1] == 0x15) {
         final receivedUuidBytes = beaconData.sublist(2, 18);
         final targetUuidBytes = _uuidToBytes(targetUuid);
         if (const ListEquality().equals(receivedUuidBytes, targetUuidBytes)) {
@@ -219,7 +261,6 @@ class _ScanningPageState extends State<ScanningPage> {
     return false;
   }
 
-  // --- CORRECTED HELPER TO CONVERT UUID STRING TO BYTES ---
   List<int> _uuidToBytes(String uuid) {
     final strippedUuid = uuid.replaceAll('-', '');
     final bytes = <int>[];
@@ -230,14 +271,14 @@ class _ScanningPageState extends State<ScanningPage> {
     return bytes;
   }
 
-
   Future<void> _callMarkAttendanceAPI() async {
     final token = await _storage.read(key: 'auth_token');
     if (token == null) {
       throw Exception('Authentication token not found. Please login again.');
     }
 
-    final url = Uri.parse('http://192.168.0.110:3000/api/v1/student/markAttendance');
+    final url =
+    Uri.parse('http://192.168.0.110:3000/api/v1/student/markAttendance');
     final body = jsonEncode({
       'sessionId': _scannedSessionId,
       'subject': _scannedSubject,
@@ -265,39 +306,52 @@ class _ScanningPageState extends State<ScanningPage> {
 
   @override
   Widget build(BuildContext context) {
-    if (_cameraPermission == null || _bluetoothPermission == null) {
+    // Show a loading indicator while initial checks are running
+    if (_cameraPermission == null ||
+        _bluetoothPermission == null ||
+        _locationPermission == null) {
       return const Scaffold(
         backgroundColor: Colors.black,
         body: Center(child: CircularProgressIndicator(color: Colors.white)),
       );
     }
 
-    if (_cameraPermission != PermissionStatus.granted) {
+    // NEW: UI to prompt user to enable location services
+    if (!_isLocationServiceEnabled) {
       return Scaffold(
         backgroundColor: Colors.black,
         body: Center(
           child: _buildPermissionUI(
-            'Camera Permission Needed',
-            'This app needs camera access to scan QR codes.',
+            'Location Services Required',
+            'Please enable location services to allow Bluetooth scanning for beacons.',
+                () async {
+              // This won't directly open the location settings,
+              // but prompts the user to do so. The timer will detect the change.
+              print("Prompting user to enable location.");
+            },
+            buttonText: 'Enable Location',
+          ),
+        ),
+      );
+    }
+
+    // UI for missing permissions
+    if (_cameraPermission != PermissionStatus.granted ||
+        _bluetoothPermission != PermissionStatus.granted ||
+        _locationPermission != PermissionStatus.granted) {
+      return Scaffold(
+        backgroundColor: Colors.black,
+        body: Center(
+          child: _buildPermissionUI(
+            'Permissions Required',
+            'Camera, Bluetooth, and Location permissions are needed for attendance scanning.',
             _openSettingsOrRequest,
           ),
         ),
       );
     }
 
-    if (_bluetoothPermission != PermissionStatus.granted) {
-      return Scaffold(
-        backgroundColor: Colors.black,
-        body: Center(
-          child: _buildPermissionUI(
-            'Bluetooth Permission Needed',
-            'This app needs Bluetooth access to verify you are in the classroom.',
-            _openSettingsOrRequest,
-          ),
-        ),
-      );
-    }
-
+    // Main scanner UI
     final scanWindow = Rect.fromCenter(
       center: MediaQuery.of(context).size.center(Offset.zero),
       width: 250,
@@ -317,10 +371,13 @@ class _ScanningPageState extends State<ScanningPage> {
           ValueListenableBuilder(
             valueListenable: _scannerController,
             builder: (context, state, child) {
-              if (!state.isInitialized || !state.isRunning) return const SizedBox.shrink();
+              if (!state.isInitialized || !state.isRunning)
+                return const SizedBox.shrink();
               return IconButton(
                 color: Colors.white,
-                icon: Icon(state.torchState == TorchState.on ? Icons.flashlight_on : Icons.flashlight_off),
+                icon: Icon(state.torchState == TorchState.on
+                    ? Icons.flashlight_on
+                    : Icons.flashlight_off),
                 onPressed: () => _scannerController.toggleTorch(),
               );
             },
@@ -350,9 +407,10 @@ class _ScanningPageState extends State<ScanningPage> {
               height: scanWindow.height,
               decoration: BoxDecoration(
                 border: Border.all(
-                  color: _isProcessing ? Colors.orange.withOpacity(0.8) : Colors.greenAccent.withOpacity(0.8),
-                  width: 3,
-                ),
+                    color: _isProcessing
+                        ? Colors.orange.withOpacity(0.8)
+                        : Colors.greenAccent.withOpacity(0.8),
+                    width: 3),
                 borderRadius: BorderRadius.circular(16),
               ),
             ),
@@ -373,7 +431,9 @@ class _ScanningPageState extends State<ScanningPage> {
                     const CircularProgressIndicator(color: Colors.orange),
                     const SizedBox(height: 12),
                     Text(
-                      _scannedSubject != null ? 'Processing $_scannedSubject attendance...' : 'Processing...',
+                      _scannedSubject != null
+                          ? 'Processing $_scannedSubject attendance...'
+                          : 'Processing...',
                       style: const TextStyle(color: Colors.white),
                       textAlign: TextAlign.center,
                     ),
@@ -387,14 +447,17 @@ class _ScanningPageState extends State<ScanningPage> {
   }
 
   Future<void> _openSettingsOrRequest() async {
-    if (await Permission.camera.isPermanentlyDenied || await Permission.bluetoothScan.isPermanentlyDenied) {
+    if (await Permission.camera.isPermanentlyDenied ||
+        await Permission.bluetoothScan.isPermanentlyDenied ||
+        await Permission.locationWhenInUse.isPermanentlyDenied) {
       await openAppSettings();
     } else {
-      _requestPermissions();
+      _checkAndRequestPermissions();
     }
   }
 
-  Widget _buildPermissionUI(String title, String description, VoidCallback onRequest) {
+  Widget _buildPermissionUI(String title, String description, VoidCallback onRequest,
+      {String buttonText = 'Grant Permissions'}) {
     return Padding(
       padding: const EdgeInsets.all(24.0),
       child: Column(
@@ -402,7 +465,8 @@ class _ScanningPageState extends State<ScanningPage> {
         children: [
           Text(
             title,
-            style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold),
+            style: const TextStyle(
+                color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 16),
           Text(
@@ -414,7 +478,7 @@ class _ScanningPageState extends State<ScanningPage> {
           ElevatedButton(
             onPressed: onRequest,
             style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
-            child: const Text('Grant Permission'),
+            child: Text(buttonText),
           ),
         ],
       ),
@@ -431,7 +495,9 @@ class ScannerOverlayClipper extends CustomClipper<Path> {
     return Path.combine(
       PathOperation.difference,
       Path()..addRect(Rect.fromLTWH(0, 0, size.width, size.height)),
-      Path()..addRRect(RRect.fromRectAndRadius(scanWindow, const Radius.circular(16))),
+      Path()
+        ..addRRect(
+            RRect.fromRectAndRadius(scanWindow, const Radius.circular(16))),
     );
   }
 
