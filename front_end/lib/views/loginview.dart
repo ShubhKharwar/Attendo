@@ -42,7 +42,7 @@ class _LoginViewState extends State<LoginView> {
       final password = _passwordController.text;
 
       // Note: Your backend should handle both student and admin logins at this endpoint
-      final url = Uri.parse('http://192.168.0.110:3000/api/v1/student/signin');
+      final url = Uri.parse('http://192.168.0.104:3000/api/v1/student/signin');
 
       final body = json.encode({
         'email': email,

@@ -1,47 +1,81 @@
 import 'package:flutter/material.dart';
-import 'student_scan.dart';
-import 'leaderboard_page.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'dart:convert';
 import 'loginview.dart';
-import 'schedule_page.dart'; // Import the new schedule page
 import 'dart:async'; // Import for Timer
+import 'teacher_attendance_page.dart';
+import 'teacher_schedule_page.dart';
 
-class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+// Import your TeacherAttendancePage
+// import 'teacher_attendance_page.dart'; // Uncomment and adjust path as needed
 
-  @override
-  State<HomeScreen> createState() => _HomeScreenState();
+class TeacherClass {
+  final String className;
+  final String venue;
+  final TimeOfDay startTime;
+  final TimeOfDay endTime;
+
+  TeacherClass({
+    required this.className,
+    required this.venue,
+    required this.startTime,
+    required this.endTime,
+  });
 }
 
-class _HomeScreenState extends State<HomeScreen> {
-  String _userName = 'Loading...';
-  Task? _currentTask; // Use the Task model
+class TeacherHomeScreen extends StatefulWidget {
+  const TeacherHomeScreen({super.key});
+
+  @override
+  State<TeacherHomeScreen> createState() => _TeacherHomeScreenState();
+}
+
+class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
+  String _teacherName = 'Loading...';
+  TeacherClass? _nextClass; // Use the TeacherClass model
   final _storage = const FlutterSecureStorage();
   late Timer _timer;
 
   // --- 1. SIMULATED DATA (used for now) ---
   // This list is used while the backend logic is commented out.
-  List<Task> _tasks = [
-    Task(title: 'DBMS Class', startTime: const TimeOfDay(hour: 9, minute: 0), endTime: const TimeOfDay(hour: 10, minute: 0)),
-    Task(title: 'DSA Class', startTime: const TimeOfDay(hour: 10, minute: 0), endTime: const TimeOfDay(hour: 11, minute: 30)),
-    Task(title: 'Music Class', startTime: const TimeOfDay(hour: 12, minute: 0), endTime: const TimeOfDay(hour: 13, minute: 0)),
-    Task(title: 'CP Lab', startTime: const TimeOfDay(hour: 14, minute: 0), endTime: const TimeOfDay(hour: 16, minute: 0)),
-    Task(title: 'Gym', startTime: const TimeOfDay(hour: 17, minute: 30), endTime: const TimeOfDay(hour: 18, minute: 30)),
-    Task(title: 'Family Time', startTime: const TimeOfDay(hour: 19, minute: 0), endTime: const TimeOfDay(hour: 21, minute: 0)),
+  List<TeacherClass> _classes = [
+    TeacherClass(
+      className: 'Database Management Systems',
+      venue: 'Room 301, CS Block',
+      startTime: const TimeOfDay(hour: 9, minute: 0),
+      endTime: const TimeOfDay(hour: 10, minute: 30),
+    ),
+    TeacherClass(
+      className: 'Data Structures & Algorithms',
+      venue: 'Lab 2, IT Block',
+      startTime: const TimeOfDay(hour: 11, minute: 0),
+      endTime: const TimeOfDay(hour: 12, minute: 30),
+    ),
+    TeacherClass(
+      className: 'Software Engineering',
+      venue: 'Room 205, Main Block',
+      startTime: const TimeOfDay(hour: 14, minute: 0),
+      endTime: const TimeOfDay(hour: 15, minute: 30),
+    ),
+    TeacherClass(
+      className: 'Computer Networks',
+      venue: 'Room 401, CS Block',
+      startTime: const TimeOfDay(hour: 16, minute: 0),
+      endTime: const TimeOfDay(hour: 17, minute: 30),
+    ),
   ];
 
   @override
   void initState() {
     super.initState();
-    _fetchUserData();
-    _findCurrentTask();
-    // _fetchSchedule(); // Call this when you are ready to use the backend
+    _fetchTeacherData();
+    _findNextClass();
+    // _fetchTeacherSchedule(); // Call this when you are ready to use the backend
 
     _timer = Timer.periodic(const Duration(minutes: 1), (timer) {
       if (mounted) {
-        _findCurrentTask();
+        _findNextClass();
       }
     });
   }
@@ -54,8 +88,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // --- 2. NEW BACKEND LOGIC (commented out) ---
   /*
-  Future<void> _fetchSchedule() async {
-    print("Fetching schedule from backend...");
+  Future<void> _fetchTeacherSchedule() async {
+    print("Fetching teacher schedule from backend...");
     try {
       final token = await _storage.read(key: 'auth_token');
       if (token == null) {
@@ -63,8 +97,8 @@ class _HomeScreenState extends State<HomeScreen> {
         return;
       }
 
-      // Replace with your actual schedule endpoint
-      final url = Uri.parse('http://192.168.0.104:3000/api/v1/student/schedule');
+      // Replace with your actual teacher schedule endpoint
+      final url = Uri.parse('http://192.168.0.104:3000/api/v1/teacher/schedule');
 
       final response = await http.get(
         url,
@@ -83,54 +117,53 @@ class _HomeScreenState extends State<HomeScreen> {
           return TimeOfDay(hour: int.parse(parts[0]), minute: int.parse(parts[1]));
         }
 
-        // Map the JSON data to your Task model
-        final List<Task> fetchedTasks = scheduleData.map((taskData) {
-          return Task(
-            title: taskData['title'],
-            startTime: _parseTime(taskData['startTime']),
-            endTime: _parseTime(taskData['endTime']),
+        // Map the JSON data to your TeacherClass model
+        final List<TeacherClass> fetchedClasses = scheduleData.map((classData) {
+          return TeacherClass(
+            className: classData['className'],
+            venue: classData['venue'],
+            startTime: _parseTime(classData['startTime']),
+            endTime: _parseTime(classData['endTime']),
           );
         }).toList();
 
         setState(() {
-          _tasks = fetchedTasks; // Replace the manual list with data from the database
+          _classes = fetchedClasses; // Replace the manual list with data from the database
         });
 
-        _findCurrentTask(); // Update the current task display after fetching
-        print("Schedule fetched successfully!");
+        _findNextClass(); // Update the next class display after fetching
+        print("Teacher schedule fetched successfully!");
 
       } else {
-        print('Failed to load schedule. Status code: ${response.statusCode}');
+        print('Failed to load teacher schedule. Status code: ${response.statusCode}');
       }
     } catch (e) {
-      print('An error occurred while fetching the schedule: $e');
+      print('An error occurred while fetching the teacher schedule: $e');
     }
   }
   */
 
-  void _findCurrentTask() {
+  void _findNextClass() {
     final now = TimeOfDay.now();
     final today = DateTime.now();
-    Task? activeTask;
+    TeacherClass? upcomingClass;
 
-    for (final task in _tasks) {
-      final startTime = DateTime(today.year, today.month, today.day, task.startTime.hour, task.startTime.minute);
-      final endTime = DateTime(today.year, today.month, today.day, task.endTime.hour, task.endTime.minute);
+    for (final classItem in _classes) {
+      final startTime = DateTime(today.year, today.month, today.day, classItem.startTime.hour, classItem.startTime.minute);
       final nowTime = DateTime(today.year, today.month, today.day, now.hour, now.minute);
 
-      if (!nowTime.isBefore(startTime) && nowTime.isBefore(endTime)) {
-        activeTask = task;
+      if (nowTime.isBefore(startTime)) {
+        upcomingClass = classItem;
         break;
       }
     }
 
     setState(() {
-      _currentTask = activeTask;
+      _nextClass = upcomingClass;
     });
   }
 
-
-  Future<void> _fetchUserData() async {
+  Future<void> _fetchTeacherData() async {
     try {
       final token = await _storage.read(key: 'auth_token');
 
@@ -153,18 +186,18 @@ class _HomeScreenState extends State<HomeScreen> {
       if (response.statusCode == 200 && mounted) {
         final data = json.decode(response.body);
         setState(() {
-          _userName = data['name'] ?? 'User';
+          _teacherName = data['name'] ?? 'Teacher';
         });
       } else if (response.statusCode == 401 && mounted) {
         print('Token is invalid or expired. Logging out.');
         _logout();
       } else {
-        print('Failed to load user data. Status code: ${response.statusCode}');
-        if (mounted) setState(() => _userName = 'Error');
+        print('Failed to load teacher data. Status code: ${response.statusCode}');
+        if (mounted) setState(() => _teacherName = 'Error');
       }
     } catch (e) {
-      print('An error occurred while fetching user data: $e');
-      if (mounted) setState(() => _userName = 'Error');
+      print('An error occurred while fetching teacher data: $e');
+      if (mounted) setState(() => _teacherName = 'Error');
     }
   }
 
@@ -194,11 +227,11 @@ class _HomeScreenState extends State<HomeScreen> {
               const SizedBox(height: 40),
               _buildGreeting(),
               const SizedBox(height: 50),
-              _buildNextTaskCard(),
+              _buildNextClassCard(),
               const SizedBox(height: 50),
-              _buildMarkAttendanceButton(),
+              _buildTakeAttendanceButton(),
               const SizedBox(height: 30),
-              _buildLeaderboardButton(),
+              _buildTeacherStatsButton(),
               const Spacer(),
               const SizedBox(height: 20),
             ],
@@ -255,7 +288,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ),
         Text(
-          _userName,
+          _teacherName,
           style: const TextStyle(
             color: Colors.white,
             fontSize: 40,
@@ -266,13 +299,11 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildNextTaskCard() {
+  Widget _buildNextClassCard() {
     return GestureDetector(
-      onTap: () {
-        Navigator.push(
+      onTap: () {Navigator.push(
           context,
-          MaterialPageRoute(builder: (context) => const SchedulePage()),
-        );
+          MaterialPageRoute(builder: (context) => const TeacherSchedulePage()),);
       },
       child: Container(
         width: double.infinity,
@@ -290,15 +321,24 @@ class _HomeScreenState extends State<HomeScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    _currentTask?.title ?? 'No current task',
+                    _nextClass?.className ?? 'No upcoming classes',
                     style: const TextStyle(
                       color: Colors.white,
-                      fontSize: 32,
+                      fontSize: 28,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
                   const SizedBox(height: 8),
-                  if (_currentTask == null)
+                  if (_nextClass != null)
+                    Text(
+                      _nextClass!.venue,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w400,
+                      ),
+                    )
+                  else
                     const Text(
                       'Enjoy your free time!',
                       style: TextStyle(
@@ -310,9 +350,9 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
             const SizedBox(width: 16), // Add spacing between title and time
-            if (_currentTask != null)
+            if (_nextClass != null)
               Text(
-                '${_currentTask!.startTime.format(context)} - ${_currentTask!.endTime.format(context)}',
+                '${_nextClass!.startTime.format(context)} - ${_nextClass!.endTime.format(context)}',
                 style: const TextStyle(
                   color: Colors.white,
                   fontSize: 18,
@@ -325,13 +365,12 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-
-  Widget _buildMarkAttendanceButton() {
+  Widget _buildTakeAttendanceButton() {
     return GestureDetector(
       onTap: () {
         Navigator.push(
           context,
-          MaterialPageRoute(builder: (context) => const ScanningPage()),
+          MaterialPageRoute(builder: (context) => const TeacherAttendancePage()),
         );
       },
       child: Row(
@@ -341,7 +380,7 @@ class _HomeScreenState extends State<HomeScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Mark your\nattendance',
+                'Take\nattendance',
                 style: TextStyle(
                   color: Colors.white,
                   fontSize: 28,
@@ -350,7 +389,7 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
               SizedBox(height: 4),
               Text(
-                'see this month\'s attendance',
+                'start attendance session',
                 style: TextStyle(color: Colors.grey, fontSize: 14),
               ),
             ],
@@ -361,7 +400,7 @@ class _HomeScreenState extends State<HomeScreen> {
               color: const Color(0xFF4CAF50),
               borderRadius: BorderRadius.circular(20),
             ),
-            child: const Icon(Icons.qr_code_scanner,
+            child: const Icon(Icons.qr_code,
                 color: Colors.white, size: 48),
           ),
         ],
@@ -369,13 +408,11 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildLeaderboardButton() {
+  Widget _buildTeacherStatsButton() {
     return GestureDetector(
       onTap: () {
-        Navigator.push(
-          context,
-          MaterialPageRoute(builder: (context) => const LeaderboardPage()),
-        );
+        // Navigate to teacher statistics or analytics page
+        print('Navigate to teacher statistics');
       },
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
@@ -387,14 +424,15 @@ class _HomeScreenState extends State<HomeScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
-              'Your leaderboard rank is 15!',
+              'View attendance statistics',
               style:
               TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
             ),
             SizedBox(width: 10),
             CircleAvatar(
               radius: 15,
-              backgroundColor: Colors.blue,
+              backgroundColor: Colors.orange,
+              child: Icon(Icons.analytics, color: Colors.white, size: 18),
             ),
           ],
         ),
@@ -413,7 +451,7 @@ class _HomeScreenState extends State<HomeScreen> {
               color: Color(0xFF4CAF50),
             ),
             child: Text(
-              'Navigation',
+              'Teacher Dashboard',
               style: TextStyle(
                 color: Colors.white,
                 fontSize: 24,
@@ -421,13 +459,18 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
           ListTile(
-            leading: const Icon(Icons.pages, color: Colors.white),
-            title: const Text('Page 1', style: TextStyle(color: Colors.white)),
+            leading: const Icon(Icons.schedule, color: Colors.white),
+            title: const Text('My Schedule', style: TextStyle(color: Colors.white)),
             onTap: () => Navigator.pop(context),
           ),
           ListTile(
-            leading: const Icon(Icons.pages, color: Colors.white),
-            title: const Text('Page 2', style: TextStyle(color: Colors.white)),
+            leading: const Icon(Icons.analytics, color: Colors.white),
+            title: const Text('Analytics', style: TextStyle(color: Colors.white)),
+            onTap: () => Navigator.pop(context),
+          ),
+          ListTile(
+            leading: const Icon(Icons.people, color: Colors.white),
+            title: const Text('Students', style: TextStyle(color: Colors.white)),
             onTap: () => Navigator.pop(context),
           ),
         ],
@@ -449,15 +492,14 @@ class _HomeScreenState extends State<HomeScreen> {
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
           IconButton(
-            icon:
-            const Icon(Icons.emoji_events_outlined, color: Colors.grey, size: 30),
+            icon: const Icon(Icons.analytics_outlined, color: Colors.grey, size: 30),
             onPressed: () {},
           ),
           GestureDetector(
             onTap: () {
               Navigator.push(
                 context,
-                MaterialPageRoute(builder: (context) => const ScanningPage()),
+                MaterialPageRoute(builder: (context) => const TeacherAttendancePage()),
               );
             },
             child: Container(
@@ -467,12 +509,12 @@ class _HomeScreenState extends State<HomeScreen> {
                 shape: BoxShape.circle,
                 color: Color(0xFF4CAF50),
               ),
-              child: const Icon(Icons.qr_code_scanner,
+              child: const Icon(Icons.qr_code,
                   color: Colors.white, size: 35),
             ),
           ),
           IconButton(
-            icon: const Icon(Icons.book_outlined, color: Colors.grey, size: 30),
+            icon: const Icon(Icons.people_outlined, color: Colors.grey, size: 30),
             onPressed: () {},
           ),
         ],
@@ -480,4 +522,3 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 }
-

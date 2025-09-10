@@ -278,7 +278,7 @@ class _ScanningPageState extends State<ScanningPage> {
     }
 
     final url =
-    Uri.parse('http://192.168.0.110:3000/api/v1/student/markAttendance');
+    Uri.parse('http://192.168.0.104:3000/api/v1/student/markAttendance');
     final body = jsonEncode({
       'sessionId': _scannedSessionId,
       'subject': _scannedSubject,

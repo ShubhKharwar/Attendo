@@ -1,5 +1,5 @@
 import 'package:attendo/views/loginview.dart';
-import 'package:attendo/views/teacher_attendance_page.dart';
+import 'package:attendo/views/teacher_home.dart'; // Add this import
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -72,14 +72,14 @@ class _AuthWrapperState extends State<AuthWrapper> {
     } else {
       // Check if both token and role exist
       if (authToken != null && userRole != null) {
-        // ---- NEW NAVIGATION LOGIC BASED ON ROLE ----
-        if (userRole == 'admin') { // Or 'teacher', depending on your system
-          // If user is an admin, go to the teacher/admin page
+        // ---- UPDATED NAVIGATION LOGIC BASED ON ROLE ----
+        if (userRole == 'admin') {
+          // If user is a teacher or admin, go to the TeacherHomeScreen
           Navigator.of(context).pushReplacement(
-            MaterialPageRoute(builder: (_) => const TeacherAttendancePage()), // Or an AdminDashboard
+            MaterialPageRoute(builder: (_) => const TeacherHomeScreen()),
           );
         } else {
-          // For any other role, go to the default home screen
+          // For students or any other role, go to the student home screen
           Navigator.of(context).pushReplacement(
             MaterialPageRoute(builder: (_) => const HomeScreen()),
           );
