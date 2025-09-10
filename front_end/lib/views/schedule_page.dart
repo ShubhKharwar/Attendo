@@ -105,13 +105,13 @@ class _SchedulePageState extends State<SchedulePage> {
     _expandedTaskIndex = null;
   });
 
+  final String formattedDate = DateFormat('yyyy-MM-dd').format(date);
   try {
     final token = await _storage.read(key: 'auth_token');
     if (token == null) {
       throw Exception('Authentication token not found. Please log in again.');
     }
 
-    final String formattedDate = DateFormat('yyyy-MM-dd').format(date);
     final url = Uri.parse('http://192.168.0.104:3000/api/v1/student/schedule?date=$formattedDate');
     
     print('🗓️ Fetching schedule for SPECIFIC date: $formattedDate'); // Debug log
