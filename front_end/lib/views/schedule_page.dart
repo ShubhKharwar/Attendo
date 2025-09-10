@@ -84,8 +84,7 @@ class _SchedulePageState extends State<SchedulePage> {
   void initState() {
     super.initState();
     _fetchScheduleForDate(_selectedDate);
-    _timer = Timer.periodic(const Duration(minutes: 1), (timer) {
-      if (mounted) {
+    _timer = Timer.periodic(const Duration(minutes: 1), (timer) {      if (mounted) {
         setState(() {});
       }
     });
@@ -99,55 +98,76 @@ class _SchedulePageState extends State<SchedulePage> {
 
   // --- All backend and data fetching logic remains the same ---
   Future<void> _fetchScheduleForDate(DateTime date) async {
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-      _userAddedTasks.clear();
-      _expandedTaskIndex = null; // --- Collapse card when date changes ---
-    });
+  setState(() {
+    _isLoading = true;
+    _errorMessage = null;
+    _userAddedTasks.clear();
+    _expandedTaskIndex = null;
+  });
 
-    try {
-      final token = await _storage.read(key: 'auth_token');
-      if (token == null) {
-        throw Exception('Authentication token not found. Please log in again.');
-      }
+  try {
+    final token = await _storage.read(key: 'auth_token');
+    if (token == null) {
+      throw Exception('Authentication token not found. Please log in again.');
+    }
 
-      final String formattedDate = DateFormat('yyyy-MM-dd').format(date);
-      final url = Uri.parse('http://192.168.0.104:3000/api/v1/student/schedule?date=$formattedDate');
+    final String formattedDate = DateFormat('yyyy-MM-dd').format(date);
+    final url = Uri.parse('http://192.168.0.104:3000/api/v1/student/schedule?date=$formattedDate');
+    
+    print('🗓️ Fetching schedule for SPECIFIC date: $formattedDate'); // Debug log
+    
+    final response = await http.get(
+      url,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token',
+      },
+    );
 
-      final response = await http.get(
-        url,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-      );
-
-      if (!mounted) return;
-
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        final List classesJson = data['classes'] ?? [];
-        List<Task> officialTasks = classesJson.map((jsonItem) => Task.fromApi(jsonItem)).toList();
-        _updateAndSortTasks(officialTasks);
-      } else {
-        final errorData = json.decode(response.body);
-        throw Exception(errorData['message'] ?? 'Failed to load schedule.');
-      }
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _errorMessage = e.toString();
-        _tasksForSelectedDate = [];
+    if (!mounted) return;
+    
+    print('📡 Response status: ${response.statusCode}'); // Debug log
+    
+    if (response.statusCode == 200) {
+      final data = json.decode(response.body);
+      final List classesJson = data['classes'] ?? [];
+      
+      // Enhanced logging
+      int recommendationCount = classesJson.where((item) => item['type'] == 'recommendation').length;
+      int classCount = classesJson.where((item) => item['type'] == 'class').length;
+      
+      print('📊 Schedule for $formattedDate:');
+      print('   - Regular classes: $classCount');
+      print('   - Recommendations: $recommendationCount');
+      print('   - Total items: ${classesJson.length}');
+      
+      // Log each recommendation for debugging
+      classesJson.where((item) => item['type'] == 'recommendation').forEach((rec) {
+        print('   📝 Recommendation: ${rec['subject']} at ${rec['startTime']} (${rec['urgencyLevel']})');
       });
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-      }
+      
+      List<Task> officialTasks = classesJson.map((jsonItem) => Task.fromApi(jsonItem)).toList();
+      _updateAndSortTasks(officialTasks);
+    } else {
+      final errorData = json.decode(response.body);
+      throw Exception(errorData['message'] ?? 'Failed to load schedule.');
+    }
+  } catch (e) {
+    print('❌ Error fetching schedule for $formattedDate: $e');
+    if (!mounted) return;
+    setState(() {
+      _errorMessage = e.toString();
+      _tasksForSelectedDate = [];
+    });
+  } finally {
+    if (mounted) {
+      setState(() {
+        _isLoading = false;
+      });
     }
   }
+}
+
   void _updateAndSortTasks(List<Task> officialTasks) {
     setState(() {
       _tasksForSelectedDate = [...officialTasks, ..._userAddedTasks];
