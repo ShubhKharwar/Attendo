@@ -148,6 +148,7 @@ class _LoginViewState extends State<LoginView> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      resizeToAvoidBottomInset: false, // <-- THE FIX IS HERE
       backgroundColor: Colors.black,
       body: SafeArea(
         child: Column( // This is the main Column

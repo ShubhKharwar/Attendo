@@ -1,6 +1,7 @@
 from fastapi import Depends
 from sqlmodel import Session
 from typing import Annotated
+from sqlalchemy import UniqueConstraint
 from sqlmodel import SQLModel, create_engine, Session, Field, Column, JSON
 from typing import Optional, List, Dict, Any, Annotated
 import os
