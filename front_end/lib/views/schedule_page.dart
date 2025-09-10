@@ -1,24 +1,55 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
-import 'package:intl/intl.dart'; // Import for date formatting
-import 'add_task_page.dart'; // Import the new page
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:intl/intl.dart';
+import 'add_task_page.dart'; // Your page for adding tasks
 
-// Data model for a single schedule task
+// --- MODIFIED: Task model with a factory constructor for API data ---
 class Task {
   final String title;
   final TimeOfDay startTime;
   final TimeOfDay endTime;
-  final bool isOfficial; // To distinguish between college classes and user tasks
+  final bool isOfficial;
 
   Task({
     required this.title,
     required this.startTime,
     required this.endTime,
-    this.isOfficial = false, // Default to not being an official class
+    this.isOfficial = false,
   });
+
+  // --- ADDED: Factory constructor to parse from API response ---
+  factory Task.fromApi(Map<String, dynamic> json) {
+    TimeOfDay startTime = _parseTime(json['startTime'] ?? '00:00');
+    TimeOfDay endTime = _calculateEndTime(startTime, json['duration'] ?? '0 minutes');
+
+    return Task(
+      title: json['subject'] ?? 'Unknown Class',
+      startTime: startTime,
+      endTime: endTime,
+      isOfficial: true, // All tasks from the API are official
+    );
+  }
 }
 
-// Enum to represent the status of a task
+// --- ADDED: Helper functions to parse time from your backend's format ---
+TimeOfDay _parseTime(String time) {
+  final parts = time.split(':');
+  if (parts.length != 2) return const TimeOfDay(hour: 0, minute: 0);
+  return TimeOfDay(hour: int.parse(parts[0]), minute: int.parse(parts[1]));
+}
+
+TimeOfDay _calculateEndTime(TimeOfDay startTime, String duration) {
+  final minutesToAdd = int.tryParse(duration.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
+  final now = DateTime.now();
+  final startDateTime = DateTime(now.year, now.month, now.day, startTime.hour, startTime.minute);
+  final endDateTime = startDateTime.add(Duration(minutes: minutesToAdd));
+  return TimeOfDay.fromDateTime(endDateTime);
+}
+
+// Enum remains the same
 enum TaskStatus { past, current, future }
 
 class SchedulePage extends StatefulWidget {
@@ -34,34 +65,18 @@ class _SchedulePageState extends State<SchedulePage> {
   List<Task> _tasksForSelectedDate = [];
   late Timer _timer;
 
-  // --- DATA SIMULATION FOR MULTIPLE DAYS ---
-  // In a real app, this data would come from your database.
-  final Map<DateTime, List<Task>> _allSchedules = {
-    // Today's Schedule
-    DateTime.now(): [
-      Task(title: 'DBMS Class', startTime: const TimeOfDay(hour: 9, minute: 0), endTime: const TimeOfDay(hour: 10, minute: 0), isOfficial: true),
-      Task(title: 'DSA Class', startTime: const TimeOfDay(hour: 10, minute: 0), endTime: const TimeOfDay(hour: 11, minute: 30), isOfficial: true),
-      Task(title: 'Music Class', startTime: const TimeOfDay(hour: 12, minute: 0), endTime: const TimeOfDay(hour: 13, minute: 0)),
-      Task(title: 'CP Lab', startTime: const TimeOfDay(hour: 14, minute: 0), endTime: const TimeOfDay(hour: 16, minute: 0), isOfficial: true),
-      Task(title: 'Gym', startTime: const TimeOfDay(hour: 17, minute: 30), endTime: const TimeOfDay(hour: 18, minute: 30)),
-    ],
-    // Yesterday's Schedule
-    DateTime.now().subtract(const Duration(days: 1)): [
-      Task(title: 'History Lecture', startTime: const TimeOfDay(hour: 11, minute: 0), endTime: const TimeOfDay(hour: 12, minute: 30), isOfficial: true),
-      Task(title: 'Project Work', startTime: const TimeOfDay(hour: 14, minute: 0), endTime: const TimeOfDay(hour: 17, minute: 0)),
-    ],
-    // Tomorrow's Schedule
-    DateTime.now().add(const Duration(days: 1)): [
-      Task(title: 'Physics Lab', startTime: const TimeOfDay(hour: 10, minute: 0), endTime: const TimeOfDay(hour: 13, minute: 0), isOfficial: true),
-      Task(title: 'Study Group', startTime: const TimeOfDay(hour: 15, minute: 0), endTime: const TimeOfDay(hour: 16, minute: 30)),
-    ]
-  };
+  // --- ADDED: State for API calls and local user tasks ---
+  bool _isLoading = true;
+  String? _errorMessage;
+  final _storage = const FlutterSecureStorage();
+  List<Task> _userAddedTasks = []; // To hold tasks added by the user in the current session
 
+  // --- REMOVED: The hardcoded _allSchedules map is no longer needed ---
 
   @override
   void initState() {
     super.initState();
-    _loadTasksForSelectedDate();
+    _fetchScheduleForDate(_selectedDate); // Fetch live data on initial load
     _timer = Timer.periodic(const Duration(minutes: 1), (timer) {
       if (mounted) {
         setState(() {});
@@ -75,58 +90,81 @@ class _SchedulePageState extends State<SchedulePage> {
     super.dispose();
   }
 
-  // --- CORRECTED FUNCTION TO LOAD TASKS FOR THE SELECTED DATE ---
-  void _loadTasksForSelectedDate() {
-    DateTime normalizedDate = DateUtils.dateOnly(_selectedDate);
-
-    // --- DATABASE LOGIC (COMMENTED OUT) ---
-    /*
-    Future<void> _fetchScheduleForDate(DateTime date) async {
-      print("Fetching schedule for ${DateFormat.yMd().format(date)}...");
-      try {
-        final token = await _storage.read(key: 'auth_token');
-        if (token == null) return;
-
-        // Example endpoint: /api/v1/student/schedule?date=2025-09-10
-        final url = Uri.parse('http://192.168.0.104/api/v1/student/schedule?date=${DateFormat('yyyy-MM-dd').format(date)}');
-        final response = await http.get(url, headers: {'Authorization': 'Bearer $token'});
-
-        if (response.statusCode == 200 && mounted) {
-          // Parse the response and update the state
-          // ...
-          setState(() {
-            // _tasksForSelectedDate = parsedTasks;
-          });
-        }
-      } catch (e) {
-        print("Error fetching schedule for date: $e");
-      }
-    }
-    // Instead of the map lookup below, you would call:
-    // await _fetchScheduleForDate(_selectedDate);
-    */
-
-    // --- FIX: Safely find and assign tasks ---
-    DateTime? matchingKey;
-    for (var key in _allSchedules.keys) {
-      if (DateUtils.isSameDay(key, normalizedDate)) {
-        matchingKey = key;
-        break;
-      }
-    }
-
+  // --- REPLACED: This function now fetches data from your backend ---
+  Future<void> _fetchScheduleForDate(DateTime date) async {
     setState(() {
-      if (matchingKey != null) {
-        _tasksForSelectedDate = _allSchedules[matchingKey]!;
-      } else {
-        // If no schedule is found for the selected date, show an empty list.
-        _tasksForSelectedDate = [];
+      _isLoading = true;
+      _errorMessage = null;
+      _userAddedTasks.clear(); // Clear personal tasks when changing days
+    });
+
+    try {
+      final token = await _storage.read(key: 'auth_token');
+      if (token == null) {
+        throw Exception('Authentication token not found. Please log in again.');
       }
+
+      // 2. Format the date and construct the correct URL for the student endpoint
+      final String formattedDate = DateFormat('yyyy-MM-dd').format(date);
+      // IMPORTANT: Replace 'YOUR_SERVER_IP' with your actual IP address
+      final url = Uri.parse('http://192.168.0.104:3000/api/v1/student/schedule?date=$formattedDate');
+
+      // 3. Make the authenticated GET request
+      final response = await http.get(
+        url,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+      );
+
+      if (!mounted) return;
+
+      // 4. Handle the response
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        final List<dynamic> classesJson = data['classes'] ?? [];
+
+        // Convert the API response into a list of official Task objects
+        List<Task> officialTasks = classesJson.map((jsonItem) => Task.fromApi(jsonItem)).toList();
+
+        // Update the UI with the fetched tasks
+        _updateAndSortTasks(officialTasks);
+
+      } else {
+        final errorData = json.decode(response.body);
+        throw Exception(errorData['message'] ?? 'Failed to load schedule.');
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _errorMessage = e.toString();
+        _tasksForSelectedDate = []; // Clear data on error
+      });
+    } finally {
+      if(mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  // --- ADDED: Helper to combine official API tasks and local user tasks ---
+  void _updateAndSortTasks(List<Task> officialTasks) {
+    setState(() {
+      // Combine the two lists
+      _tasksForSelectedDate = [...officialTasks, ..._userAddedTasks];
+      // Sort the combined list by start time
+      _tasksForSelectedDate.sort((a, b) {
+        double aTime = a.startTime.hour + a.startTime.minute / 60.0;
+        double bTime = b.startTime.hour + b.startTime.minute / 60.0;
+        return aTime.compareTo(bTime);
+      });
     });
   }
 
-
-  // --- NEW: FUNCTION TO SHOW THE CALENDAR ---
+  // --- MODIFIED: Calendar function now triggers the API fetch ---
   Future<void> _showCalendar() async {
     final DateTime? picked = await showDatePicker(
       context: context,
@@ -139,53 +177,33 @@ class _SchedulePageState extends State<SchedulePage> {
       setState(() {
         _selectedDate = picked;
       });
-      _loadTasksForSelectedDate();
+      // Fetch live data for the newly selected date
+      _fetchScheduleForDate(_selectedDate);
     }
   }
 
+  // --- MODIFIED: _addTask now only handles user-added tasks ---
   void _addTask(Task newTask) {
-    // Logic remains mostly the same, but now it adds to the map
-    DateTime normalizedDate = DateUtils.dateOnly(_selectedDate);
+    // Add the new personal task to our in-memory list
+    _userAddedTasks.add(newTask);
 
-    // Create a mutable copy of the tasks for the selected day
-    List<Task> tasksForDay = List<Task>.from(_allSchedules[normalizedDate] ?? []);
+    // Get the current list of official classes from the main state
+    List<Task> officialTasks = _tasksForSelectedDate.where((task) => task.isOfficial).toList();
 
-    // Perform conflict check and removal
-    tasksForDay.removeWhere((existingTask) {
-      final today = _selectedDate;
-      DateTime newStartTime = DateTime(today.year, today.month, today.day, newTask.startTime.hour, newTask.startTime.minute);
-      DateTime newEndTime = DateTime(today.year, today.month, today.day, newTask.endTime.hour, newTask.endTime.minute);
-      DateTime existingStartTime = DateTime(today.year, today.month, today.day, existingTask.startTime.hour, existingTask.startTime.minute);
-      DateTime existingEndTime = DateTime(today.year, today.month, today.day, existingTask.endTime.hour, existingTask.endTime.minute);
-      return newStartTime.isBefore(existingEndTime) && newEndTime.isAfter(existingStartTime);
-    });
-
-    // Add new task and sort
-    tasksForDay.add(newTask);
-    tasksForDay.sort((a, b) {
-      double aTime = a.startTime.hour + a.startTime.minute / 60.0;
-      double bTime = b.startTime.hour + b.startTime.minute / 60.0;
-      return aTime.compareTo(bTime);
-    });
-
-    // Update the main schedule map and the currently displayed list
-    setState(() {
-      _allSchedules[normalizedDate] = tasksForDay;
-      _tasksForSelectedDate = tasksForDay;
-    });
+    // Re-combine the official classes with the updated personal task list and refresh the UI
+    _updateAndSortTasks(officialTasks);
   }
 
+  // --- MODIFIED: _removeTask now only handles user-added tasks ---
   Future<void> _removeTask(Task task) async {
     if (task.isOfficial) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Official college classes cannot be removed.'),
-          backgroundColor: Colors.orange,
-        ),
+        const SnackBar(content: Text('Official college classes cannot be removed.')),
       );
       return;
     }
 
+    // Confirmation dialog logic remains the same...
     final bool? confirmed = await showDialog(
       context: context,
       builder: (BuildContext context) {
@@ -208,21 +226,20 @@ class _SchedulePageState extends State<SchedulePage> {
     );
 
     if (confirmed == true) {
-      setState(() {
-        DateTime normalizedDate = DateUtils.dateOnly(_selectedDate);
-        _allSchedules[normalizedDate]?.remove(task);
-        _loadTasksForSelectedDate(); // Refresh the displayed list
-      });
+      // Remove the task from our personal list
+      _userAddedTasks.remove(task);
+
+      // Re-combine and refresh the UI
+      List<Task> officialTasks = _tasksForSelectedDate.where((task) => task.isOfficial).toList();
+      _updateAndSortTasks(officialTasks);
+
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Task "${task.title}" removed.'),
-          backgroundColor: Colors.red,
-        ),
+        SnackBar(content: Text('Task "${task.title}" removed.')),
       );
     }
   }
 
-  // --- UPDATED: LOGIC TO DETERMINE TASK STATUS BASED ON SELECTED DATE ---
+  // Task status logic remains the same
   TaskStatus _getTaskStatus(Task task) {
     final today = DateUtils.dateOnly(DateTime.now());
     final selectedDay = DateUtils.dateOnly(_selectedDate);
@@ -252,7 +269,6 @@ class _SchedulePageState extends State<SchedulePage> {
 
   @override
   Widget build(BuildContext context) {
-    // --- DYNAMIC APP BAR TITLE ---
     final bool isToday = DateUtils.isSameDay(_selectedDate, DateTime.now());
     final String title = isToday ? "Today's Schedule" : DateFormat.yMMMd().format(_selectedDate);
 
@@ -273,7 +289,6 @@ class _SchedulePageState extends State<SchedulePage> {
             fontSize: 24,
           ),
         ),
-        // --- NEW: CALENDAR BUTTON ---
         actions: [
           IconButton(
             icon: const Icon(Icons.calendar_today, color: Colors.white),
@@ -281,137 +296,14 @@ class _SchedulePageState extends State<SchedulePage> {
           ),
         ],
       ),
-      body: _tasksForSelectedDate.isEmpty
-          ? Center(
-        child: Text(
-          'No tasks scheduled for this day.',
-          style: TextStyle(color: Colors.grey[600], fontSize: 16),
-        ),
-      )
-          : ListView.builder(
-        padding: const EdgeInsets.fromLTRB(24.0, 24.0, 24.0, 100.0),
-        itemCount: _tasksForSelectedDate.length,
-        itemBuilder: (context, index) {
-          final task = _tasksForSelectedDate[index];
-          final status = _getTaskStatus(task);
-
-          final isLast = index == _tasksForSelectedDate.length - 1;
-
-          Color backgroundColor;
-          Color textColor;
-          Color timelineColor;
-          TextDecoration textDecoration = TextDecoration.none;
-          FontWeight fontWeight;
-
-          switch (status) {
-            case TaskStatus.past:
-              backgroundColor = Colors.grey[900]!;
-              textColor = Colors.grey[600]!;
-              timelineColor = Colors.grey[600]!;
-              textDecoration = TextDecoration.lineThrough;
-              fontWeight = FontWeight.normal;
-              break;
-            case TaskStatus.current:
-              backgroundColor = const Color(0xFF4CAF50);
-              textColor = Colors.black;
-              timelineColor = Colors.white;
-              fontWeight = FontWeight.bold;
-              break;
-            case TaskStatus.future:
-              backgroundColor = Colors.white;
-              textColor = Colors.black;
-              timelineColor = Colors.white;
-              fontWeight = FontWeight.normal;
-              break;
-          }
-
-          return IntrinsicHeight(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                SizedBox(
-                  width: 20,
-                  child: Column(
-                    children: [
-                      Expanded(
-                        child: Container(
-                          width: 2,
-                          color: index == 0 ? Colors.transparent : timelineColor,
-                        ),
-                      ),
-                      Container(
-                        width: 20,
-                        height: 20,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: status == TaskStatus.current ? Colors.white : Colors.transparent,
-                          border: Border.all(
-                            color: timelineColor,
-                            width: 2,
-                          ),
-                        ),
-                      ),
-                      Expanded(
-                        child: Container(
-                          width: 2,
-                          color: isLast ? Colors.transparent : timelineColor,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 20),
-                Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.only(bottom: 24.0),
-                    child: GestureDetector(
-                      onLongPress: () {
-                        _removeTask(task);
-                      },
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-                        decoration: BoxDecoration(
-                          color: backgroundColor,
-                          borderRadius: BorderRadius.circular(50),
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text(
-                              task.title,
-                              style: TextStyle(
-                                color: textColor,
-                                fontSize: 18,
-                                fontWeight: fontWeight,
-                                decoration: textDecoration,
-                              ),
-                            ),
-                            Text(
-                              '${task.startTime.format(context)} - ${task.endTime.format(context)}',
-                              style: TextStyle(
-                                color: textColor.withOpacity(0.8),
-                                fontSize: 14,
-                                fontWeight: fontWeight,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          );
-        },
-      ),
+      // --- MODIFIED: Body now handles loading, error, and data states ---
+      body: _buildBody(),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () async {
           final newTask = await Navigator.push<Task>(
             context,
             MaterialPageRoute(builder: (context) => const AddTaskPage()),
           );
-
           if (newTask != null) {
             _addTask(newTask);
           }
@@ -423,5 +315,156 @@ class _SchedulePageState extends State<SchedulePage> {
       floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
     );
   }
-}
 
+  // --- ADDED: Helper widget to build the body based on the current state ---
+  Widget _buildBody() {
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator(color: Colors.white));
+    }
+
+    if (_errorMessage != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24.0),
+          child: Text(
+            'Error: $_errorMessage',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: Colors.red[300], fontSize: 16),
+          ),
+        ),
+      );
+    }
+
+    if (_tasksForSelectedDate.isEmpty) {
+      return Center(
+        child: Text(
+          'No tasks scheduled for this day.',
+          style: TextStyle(color: Colors.grey[600], fontSize: 16),
+        ),
+      );
+    }
+
+    // Your existing ListView.builder for displaying the schedule
+    return ListView.builder(
+      padding: const EdgeInsets.fromLTRB(24.0, 24.0, 24.0, 100.0),
+      itemCount: _tasksForSelectedDate.length,
+      itemBuilder: (context, index) {
+        final task = _tasksForSelectedDate[index];
+        final status = _getTaskStatus(task);
+
+        final isLast = index == _tasksForSelectedDate.length - 1;
+
+        Color backgroundColor;
+        Color textColor;
+        Color timelineColor;
+        TextDecoration textDecoration = TextDecoration.none;
+        FontWeight fontWeight;
+
+        switch (status) {
+          case TaskStatus.past:
+            backgroundColor = Colors.grey[900]!;
+            textColor = Colors.grey[600]!;
+            timelineColor = Colors.grey[600]!;
+            textDecoration = TextDecoration.lineThrough;
+            fontWeight = FontWeight.normal;
+            break;
+          case TaskStatus.current:
+            backgroundColor = const Color(0xFF4CAF50);
+            textColor = Colors.black;
+            timelineColor = Colors.white;
+            fontWeight = FontWeight.bold;
+            break;
+          case TaskStatus.future:
+            backgroundColor = Colors.white;
+            textColor = Colors.black;
+            timelineColor = Colors.white;
+            fontWeight = FontWeight.normal;
+            break;
+        }
+
+        return IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              SizedBox(
+                width: 20,
+                child: Column(
+                  children: [
+                    Expanded(
+                      child: Container(
+                        width: 2,
+                        color: index == 0 ? Colors.transparent : timelineColor,
+                      ),
+                    ),
+                    Container(
+                      width: 20,
+                      height: 20,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: status == TaskStatus.current ? Colors.white : Colors.transparent,
+                        border: Border.all(
+                          color: timelineColor,
+                          width: 2,
+                        ),
+                      ),
+                    ),
+                    Expanded(
+                      child: Container(
+                        width: 2,
+                        color: isLast ? Colors.transparent : timelineColor,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 20),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.only(bottom: 24.0),
+                  child: GestureDetector(
+                    onLongPress: () {
+                      _removeTask(task);
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+                      decoration: BoxDecoration(
+                        color: backgroundColor,
+                        borderRadius: BorderRadius.circular(50),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Expanded(
+                            child: Text(
+                              task.title,
+                              style: TextStyle(
+                                color: textColor,
+                                fontSize: 18,
+                                fontWeight: fontWeight,
+                                decoration: textDecoration,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            '${task.startTime.format(context)} - ${task.endTime.format(context)}',
+                            style: TextStyle(
+                              color: textColor.withOpacity(0.8),
+                              fontSize: 14,
+                              fontWeight: fontWeight,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
