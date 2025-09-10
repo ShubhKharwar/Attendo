@@ -7,6 +7,7 @@ import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:collection/collection.dart'; // Import for list equality
 
 class ScanningPage extends StatefulWidget {
   const ScanningPage({super.key});
@@ -18,12 +19,12 @@ class ScanningPage extends StatefulWidget {
 class _ScanningPageState extends State<ScanningPage> {
   final MobileScannerController _scannerController = MobileScannerController();
   final _storage = const FlutterSecureStorage();
-  
+
   bool _isScanning = true;
   bool _isProcessing = false;
   PermissionStatus? _cameraPermission;
   PermissionStatus? _bluetoothPermission;
-  
+
   String? _scannedSessionId;
   String? _scannedSubject;
 
@@ -34,19 +35,24 @@ class _ScanningPageState extends State<ScanningPage> {
   }
 
   Future<void> _requestPermissions() async {
-    final cameraStatus = await Permission.camera.request();
-    final bluetoothStatus = await Permission.bluetoothScan.request();
-    
+    Map<Permission, PermissionStatus> statuses = await [
+      Permission.camera,
+      Permission.bluetoothScan,
+      Permission.bluetoothConnect,
+    ].request();
+
     if (mounted) {
       setState(() {
-        _cameraPermission = cameraStatus;
-        _bluetoothPermission = bluetoothStatus;
+        _cameraPermission = statuses[Permission.camera];
+        _bluetoothPermission = statuses[Permission.bluetoothScan];
       });
     }
   }
 
   @override
   void dispose() {
+    // Ensure the scan is stopped when the page is disposed
+    FlutterBluePlus.stopScan();
     _scannerController.dispose();
     super.dispose();
   }
@@ -87,7 +93,6 @@ class _ScanningPageState extends State<ScanningPage> {
     }
 
     try {
-      // Parse QR code data
       final data = jsonDecode(qrCodeData);
       final sessionId = data['sessionId'];
       final subject = data['subject'];
@@ -104,10 +109,8 @@ class _ScanningPageState extends State<ScanningPage> {
       print("✅ QR Code Scanned:");
       print("  Session ID: $sessionId");
       print("  Subject: $subject");
-      
+
       _showSnackbar("QR Scanned! Now verifying proximity...");
-      
-      // Proceed with attendance marking
       await _markAttendance();
 
     } catch (e) {
@@ -125,10 +128,9 @@ class _ScanningPageState extends State<ScanningPage> {
 
   Future<void> _markAttendance() async {
     try {
-      // Step 1: BLE Beacon Proximity Check
       _showSnackbar("Checking classroom proximity...");
       bool beaconFound = await _searchForTeacherBeacon();
-      
+
       if (!beaconFound) {
         _showSnackbar("You are not close enough to the teacher. Please move closer.", isError: true);
         await Future.delayed(const Duration(seconds: 3));
@@ -141,7 +143,6 @@ class _ScanningPageState extends State<ScanningPage> {
         return;
       }
 
-      // Step 2: Call Backend API
       _showSnackbar("Proximity verified! Marking attendance...");
       await _callMarkAttendanceAPI();
 
@@ -158,44 +159,77 @@ class _ScanningPageState extends State<ScanningPage> {
   }
 
   Future<bool> _searchForTeacherBeacon() async {
+    final completer = Completer<bool>();
+    StreamSubscription? subscription;
+    const String targetUuid = '74278bda-b644-4520-8f0c-720eaf059935';
+
     try {
-      print("🔍 Searching for teacher's beacon...");
-      
       if (await FlutterBluePlus.isAvailable == false) {
         print("❌ Bluetooth not available");
-        return true; // Allow attendance for testing even if BLE fails
+        return false;
       }
 
-      // Start BLE scan
+      print("🔍 Starting specific beacon scan for UUID: $targetUuid");
       await FlutterBluePlus.startScan(timeout: const Duration(seconds: 8));
-      
-      bool beaconFound = false;
-      
-      // Listen for scan results
-      final subscription = FlutterBluePlus.scanResults.listen((results) {
+
+      subscription = FlutterBluePlus.scanResults.listen((results) {
         for (ScanResult result in results) {
-          // Check proximity based on RSSI (signal strength)
-          // RSSI > -70 indicates close proximity
-          if (result.rssi > -70) {
-            beaconFound = true;
-            print("✅ Teacher beacon found with RSSI: ${result.rssi}");
-            break;
+          bool isTeacherBeacon = _isMatchingBeacon(result, targetUuid);
+          if (isTeacherBeacon) {
+            print('✅ Found our beacon pattern from device: ${result.device.remoteId}');
+            if (result.rssi > -70) {
+              print("   RSSI is strong enough: ${result.rssi}");
+              if (!completer.isCompleted) {
+                completer.complete(true);
+              }
+            } else {
+              print("   RSSI is too weak: ${result.rssi}");
+            }
           }
         }
       });
 
-      // Wait for scan to complete
-      await Future.delayed(const Duration(seconds: 8));
-      await subscription.cancel();
-      await FlutterBluePlus.stopScan();
-
-      return beaconFound;
+      return await completer.future.timeout(const Duration(seconds: 8), onTimeout: () {
+        print("⏰ Beacon scan timed out. No matching beacon found in proximity.");
+        return false;
+      });
 
     } catch (e) {
       print("❌ Beacon search error: $e");
-      return true; // Allow attendance for testing even if BLE scan fails
+      return false;
+    } finally {
+      print("🛑 Stopping beacon scan.");
+      await FlutterBluePlus.stopScan();
+      await subscription?.cancel();
     }
   }
+
+  bool _isMatchingBeacon(ScanResult result, String targetUuid) {
+    final manufacturerData = result.advertisementData.manufacturerData;
+    if (manufacturerData.containsKey(76)) {
+      final beaconData = manufacturerData[76]!;
+      if (beaconData.length >= 23 && beaconData[0] == 0x02 && beaconData[1] == 0x15) {
+        final receivedUuidBytes = beaconData.sublist(2, 18);
+        final targetUuidBytes = _uuidToBytes(targetUuid);
+        if (const ListEquality().equals(receivedUuidBytes, targetUuidBytes)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  // --- CORRECTED HELPER TO CONVERT UUID STRING TO BYTES ---
+  List<int> _uuidToBytes(String uuid) {
+    final strippedUuid = uuid.replaceAll('-', '');
+    final bytes = <int>[];
+    for (int i = 0; i < strippedUuid.length; i += 2) {
+      final hexPair = strippedUuid.substring(i, i + 2);
+      bytes.add(int.parse(hexPair, radix: 16));
+    }
+    return bytes;
+  }
+
 
   Future<void> _callMarkAttendanceAPI() async {
     final token = await _storage.read(key: 'auth_token');
@@ -221,11 +255,8 @@ class _ScanningPageState extends State<ScanningPage> {
     if (response.statusCode == 200) {
       _showSnackbar("✅ Attendance marked successfully for $_scannedSubject!");
       print("✅ Attendance marked successfully!");
-      
-      // Navigate back after success
       await Future.delayed(const Duration(seconds: 2));
       if (mounted) Navigator.of(context).pop();
-      
     } else {
       final errorData = jsonDecode(response.body);
       throw Exception(errorData['message'] ?? 'Failed to mark attendance');
@@ -234,7 +265,6 @@ class _ScanningPageState extends State<ScanningPage> {
 
   @override
   Widget build(BuildContext context) {
-    // Permission checks
     if (_cameraPermission == null || _bluetoothPermission == null) {
       return const Scaffold(
         backgroundColor: Colors.black,
@@ -249,7 +279,20 @@ class _ScanningPageState extends State<ScanningPage> {
           child: _buildPermissionUI(
             'Camera Permission Needed',
             'This app needs camera access to scan QR codes.',
-            () => _requestPermissions(),
+            _openSettingsOrRequest,
+          ),
+        ),
+      );
+    }
+
+    if (_bluetoothPermission != PermissionStatus.granted) {
+      return Scaffold(
+        backgroundColor: Colors.black,
+        body: Center(
+          child: _buildPermissionUI(
+            'Bluetooth Permission Needed',
+            'This app needs Bluetooth access to verify you are in the classroom.',
+            _openSettingsOrRequest,
           ),
         ),
       );
@@ -277,11 +320,7 @@ class _ScanningPageState extends State<ScanningPage> {
               if (!state.isInitialized || !state.isRunning) return const SizedBox.shrink();
               return IconButton(
                 color: Colors.white,
-                icon: Icon(
-                  state.torchState == TorchState.on 
-                      ? Icons.flashlight_on 
-                      : Icons.flashlight_off
-                ),
+                icon: Icon(state.torchState == TorchState.on ? Icons.flashlight_on : Icons.flashlight_off),
                 onPressed: () => _scannerController.toggleTorch(),
               );
             },
@@ -291,14 +330,11 @@ class _ScanningPageState extends State<ScanningPage> {
       body: Stack(
         fit: StackFit.expand,
         children: [
-          // Camera Scanner
           MobileScanner(
             controller: _scannerController,
             onDetect: _onDetect,
             scanWindow: scanWindow,
           ),
-          
-          // Overlay with blur
           ClipPath(
             clipper: ScannerOverlayClipper(scanWindow),
             child: BackdropFilter(
@@ -308,25 +344,19 @@ class _ScanningPageState extends State<ScanningPage> {
               ),
             ),
           ),
-          
-          // Scan window border
           Center(
             child: Container(
               width: scanWindow.width,
               height: scanWindow.height,
               decoration: BoxDecoration(
                 border: Border.all(
-                  color: _isProcessing 
-                      ? Colors.orange.withOpacity(0.8)
-                      : Colors.greenAccent.withOpacity(0.8), 
-                  width: 3
+                  color: _isProcessing ? Colors.orange.withOpacity(0.8) : Colors.greenAccent.withOpacity(0.8),
+                  width: 3,
                 ),
                 borderRadius: BorderRadius.circular(16),
               ),
             ),
           ),
-          
-          // Status overlay
           if (_isProcessing)
             Positioned(
               top: 100,
@@ -343,9 +373,7 @@ class _ScanningPageState extends State<ScanningPage> {
                     const CircularProgressIndicator(color: Colors.orange),
                     const SizedBox(height: 12),
                     Text(
-                      _scannedSubject != null 
-                          ? 'Processing $_scannedSubject attendance...'
-                          : 'Processing...',
+                      _scannedSubject != null ? 'Processing $_scannedSubject attendance...' : 'Processing...',
                       style: const TextStyle(color: Colors.white),
                       textAlign: TextAlign.center,
                     ),
@@ -358,6 +386,14 @@ class _ScanningPageState extends State<ScanningPage> {
     );
   }
 
+  Future<void> _openSettingsOrRequest() async {
+    if (await Permission.camera.isPermanentlyDenied || await Permission.bluetoothScan.isPermanentlyDenied) {
+      await openAppSettings();
+    } else {
+      _requestPermissions();
+    }
+  }
+
   Widget _buildPermissionUI(String title, String description, VoidCallback onRequest) {
     return Padding(
       padding: const EdgeInsets.all(24.0),
@@ -366,11 +402,7 @@ class _ScanningPageState extends State<ScanningPage> {
         children: [
           Text(
             title,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 22,
-              fontWeight: FontWeight.bold,
-            ),
+            style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 16),
           Text(
@@ -392,7 +424,6 @@ class _ScanningPageState extends State<ScanningPage> {
 
 class ScannerOverlayClipper extends CustomClipper<Path> {
   final Rect scanWindow;
-
   ScannerOverlayClipper(this.scanWindow);
 
   @override
@@ -400,13 +431,11 @@ class ScannerOverlayClipper extends CustomClipper<Path> {
     return Path.combine(
       PathOperation.difference,
       Path()..addRect(Rect.fromLTWH(0, 0, size.width, size.height)),
-      Path()..addRRect(RRect.fromRectAndRadius(
-        scanWindow, 
-        const Radius.circular(16)
-      )),
+      Path()..addRRect(RRect.fromRectAndRadius(scanWindow, const Radius.circular(16))),
     );
   }
 
   @override
   bool shouldReclip(covariant CustomClipper<Path> oldClipper) => false;
 }
+

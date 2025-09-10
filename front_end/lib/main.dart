@@ -58,6 +58,7 @@ class _AuthWrapperState extends State<AuthWrapper> {
 
     // 2. Check if the user is logged in (e.g., by checking for a token)
     final String? authToken = await _storage.read(key: 'auth_token');
+    final String? userRole = await _storage.read(key: 'user_role');
 
     // Ensure the widget is still mounted before navigating
     if (!mounted) return;
@@ -69,14 +70,22 @@ class _AuthWrapperState extends State<AuthWrapper> {
         MaterialPageRoute(builder: (_) => const OnboardingScreen()),
       );
     } else {
-      // If onboarding is complete, check if the user is logged in
-      if (authToken != null) {
-        // If a token exists, the user is logged in -> go to HomeScreen
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => const HomeScreen()),
-        );
+      // Check if both token and role exist
+      if (authToken != null && userRole != null) {
+        // ---- NEW NAVIGATION LOGIC BASED ON ROLE ----
+        if (userRole == 'admin') { // Or 'teacher', depending on your system
+          // If user is an admin, go to the teacher/admin page
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (_) => const TeacherAttendancePage()), // Or an AdminDashboard
+          );
+        } else {
+          // For any other role, go to the default home screen
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (_) => const HomeScreen()),
+          );
+        }
       } else {
-        // If no token, the user is not logged in -> go to LoginView
+        // If no token or role, the user is not logged in
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(builder: (_) => const LoginView()),
         );

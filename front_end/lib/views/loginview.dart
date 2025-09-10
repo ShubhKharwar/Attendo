@@ -71,6 +71,7 @@ class _LoginViewState extends State<LoginView> {
 
         // --- 2. CHECK USER TYPE AND NAVIGATE ---
         final userType = responseData['userType']; // Expecting 'student' or 'admin'
+        await _storage.write(key: 'user_role', value: userType);
 
         if (userType == 'student') {
           // Logic for students

@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:uuid/uuid.dart';
 import 'dart:convert';
@@ -17,25 +19,45 @@ class _TeacherAttendancePageState extends State<TeacherAttendancePage> {
   final BeaconControl _beaconControl = BeaconControl();
   final Uuid _uuid = const Uuid();
   final _storage = const FlutterSecureStorage();
-  
-  // Subject selection
+
+  // State for permissions and subject selection
+  PermissionStatus? _bluetoothAdvertisePermission;
   String? _selectedSubject;
   final List<String> _subjects = [
-    'CS101', 'MATH201', 'PHY301', 'ENG101', 
+    'CS101', 'MATH201', 'PHY301', 'ENG101',
     'CHEM201', 'BIO101', 'HIST101', 'ECON201'
   ];
-  
+
   // Beacon configuration
   final String beaconUuid = '74278bda-b644-4520-8f0c-720eaf059935';
   final int major = 1;
   final int minor = 101;
+
+  @override
+  void initState() {
+    super.initState();
+    _requestPermissions();
+  }
+
+  Future<void> _requestPermissions() async {
+    // Request all permissions needed for broadcasting
+    Map<Permission, PermissionStatus> statuses = await [
+      Permission.bluetoothAdvertise,
+      Permission.bluetoothConnect,
+    ].request();
+    if (mounted) {
+      setState(() {
+        _bluetoothAdvertisePermission = statuses[Permission.bluetoothAdvertise];
+      });
+    }
+  }
 
   Future<void> _logout() async {
     await _storage.delete(key: 'auth_token');
     if (mounted) {
       Navigator.of(context).pushAndRemoveUntil(
         MaterialPageRoute(builder: (context) => const LoginView()),
-        (Route route) => false,
+            (Route route) => false,
       );
     }
   }
@@ -51,20 +73,18 @@ class _TeacherAttendancePageState extends State<TeacherAttendancePage> {
       return;
     }
 
-    // Generate session ID and create QR data with proper structure
     final String sessionId = _uuid.v4();
     final Map<String, String> qrData = {
       'sessionId': sessionId,
       'subject': _selectedSubject!,
     };
-    
     final String qrJsonString = jsonEncode(qrData);
-    
+
     // Start beacon
     await _beaconControl.startBeacon(beaconUuid, major, minor);
-    
+
     if (!mounted) return;
-    
+
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -79,10 +99,38 @@ class _TeacherAttendancePageState extends State<TeacherAttendancePage> {
 
   @override
   Widget build(BuildContext context) {
+    // --- UI GUARD FOR PERMISSIONS ---
+    if (_bluetoothAdvertisePermission == null) {
+      return const Scaffold(
+        backgroundColor: Colors.black,
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (_bluetoothAdvertisePermission != PermissionStatus.granted) {
+      return Scaffold(
+        backgroundColor: Colors.black,
+        body: Center(
+          child: _buildPermissionUI(
+            'Bluetooth Permission Needed',
+            'This app needs permission to broadcast a beacon signal for attendance.',
+                () async {
+              if (await Permission.bluetoothAdvertise.isPermanentlyDenied) {
+                await openAppSettings();
+              } else {
+                _requestPermissions();
+              }
+            },
+          ),
+        ),
+      );
+    }
+
+    // --- MAIN UI (if permissions are granted) ---
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
-        title: const Text("Teacher Dashboard", 
+        title: const Text("Teacher Dashboard",
             style: TextStyle(color: Colors.white)),
         backgroundColor: Colors.transparent,
         elevation: 0,
@@ -99,21 +147,12 @@ class _TeacherAttendancePageState extends State<TeacherAttendancePage> {
         child: Column(
           children: [
             const SizedBox(height: 40),
-            
-            // Subject Selection
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24.0),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    'Select Subject:',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
+                  const Text('Select Subject:', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 12),
                   Container(
                     width: double.infinity,
@@ -125,10 +164,7 @@ class _TeacherAttendancePageState extends State<TeacherAttendancePage> {
                     ),
                     child: DropdownButton<String>(
                       value: _selectedSubject,
-                      hint: const Text(
-                        'Choose a subject',
-                        style: TextStyle(color: Colors.grey),
-                      ),
+                      hint: const Text('Choose a subject', style: TextStyle(color: Colors.grey)),
                       dropdownColor: Colors.grey[800],
                       style: const TextStyle(color: Colors.white),
                       underline: Container(),
@@ -149,10 +185,7 @@ class _TeacherAttendancePageState extends State<TeacherAttendancePage> {
                 ],
               ),
             ),
-            
             const SizedBox(height: 40),
-            
-            // QR Code Icon
             Expanded(
               child: Center(
                 child: Column(
@@ -161,51 +194,30 @@ class _TeacherAttendancePageState extends State<TeacherAttendancePage> {
                     Icon(
                       Icons.qr_code_scanner,
                       size: 180,
-                      color: _selectedSubject != null 
-                          ? const Color(0xFF4CAF50) 
-                          : Colors.grey,
+                      color: _selectedSubject != null ? const Color(0xFF4CAF50) : Colors.grey,
                     ),
                     const SizedBox(height: 20),
                     if (_selectedSubject != null)
-                      Text(
-                        'Ready to generate QR for $_selectedSubject',
-                        style: const TextStyle(
-                          color: Colors.white70,
-                          fontSize: 16,
-                        ),
-                      ),
+                      Text('Ready to generate QR for $_selectedSubject', style: const TextStyle(color: Colors.white70, fontSize: 16)),
                   ],
                 ),
               ),
             ),
-            
-            // Generate QR Button
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 32),
               child: SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: _selectedSubject != null 
-                        ? const Color(0xFF4CAF50) 
-                        : Colors.grey,
+                    backgroundColor: _selectedSubject != null ? const Color(0xFF4CAF50) : Colors.grey,
                     padding: const EdgeInsets.symmetric(vertical: 18),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(28),
-                    ),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
                   ),
                   onPressed: _selectedSubject != null ? _onGenerateQR : null,
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: const [
-                      Text(
-                        'Generate QR & Start Session',
-                        style: TextStyle(
-                          color: Colors.black,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 18,
-                        ),
-                      ),
+                      Text('Generate QR & Start Session', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 18)),
                       SizedBox(width: 12),
                       Icon(Icons.arrow_forward, color: Colors.black),
                     ],
@@ -218,13 +230,33 @@ class _TeacherAttendancePageState extends State<TeacherAttendancePage> {
       ),
     );
   }
+
+  Widget _buildPermissionUI(String title, String description, VoidCallback onRequest) {
+    return Padding(
+      padding: const EdgeInsets.all(24.0),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text(title, style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 16),
+          Text(description, style: const TextStyle(color: Colors.white70, fontSize: 16), textAlign: TextAlign.center),
+          const SizedBox(height: 24),
+          ElevatedButton(
+            onPressed: onRequest,
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+            child: const Text('Grant Permission'),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class StopAttendancePage extends StatelessWidget {
   final String qrData;
   final String subject;
   final String sessionId;
-  
+
   const StopAttendancePage({
     Key? key,
     required this.qrData,
@@ -244,7 +276,7 @@ class StopAttendancePage extends StatelessWidget {
     if (context.mounted) {
       Navigator.of(context).pushAndRemoveUntil(
         MaterialPageRoute(builder: (context) => const LoginView()),
-        (Route route) => false,
+            (Route route) => false,
       );
     }
   }
@@ -254,7 +286,7 @@ class StopAttendancePage extends StatelessWidget {
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
-        title: Text("$subject Session", 
+        title: Text("$subject Session",
             style: const TextStyle(color: Colors.white)),
         backgroundColor: Colors.transparent,
         elevation: 0,
@@ -272,8 +304,6 @@ class StopAttendancePage extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             const Spacer(),
-            
-            // Session info
             Padding(
               padding: const EdgeInsets.all(24.0),
               child: Container(
@@ -285,43 +315,19 @@ class StopAttendancePage extends StatelessWidget {
                 ),
                 child: Column(
                   children: [
-                    Text(
-                      'Active Session',
-                      style: TextStyle(
-                        color: Colors.grey[300],
-                        fontSize: 16,
-                      ),
-                    ),
+                    Text('Active Session', style: TextStyle(color: Colors.grey[300], fontSize: 16)),
                     const SizedBox(height: 8),
-                    Text(
-                      subject,
-                      style: const TextStyle(
-                        color: Color(0xFF4CAF50),
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
+                    Text(subject, style: const TextStyle(color: Color(0xFF4CAF50), fontSize: 24, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 4),
-                    Text(
-                      'Session ID: ${sessionId.substring(0, 8)}...',
-                      style: TextStyle(
-                        color: Colors.grey[400],
-                        fontSize: 12,
-                      ),
-                    ),
+                    Text('Session ID: ${sessionId.substring(0, 8)}...', style: TextStyle(color: Colors.grey[400], fontSize: 12)),
                   ],
                 ),
               ),
             ),
-            
-            // QR Code
             Center(
               child: Container(
                 padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(20),
-                ),
+                decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20)),
                 child: QrImageView(
                   data: qrData,
                   version: QrVersions.auto,
@@ -331,16 +337,9 @@ class StopAttendancePage extends StatelessWidget {
                 ),
               ),
             ),
-            
             const SizedBox(height: 24),
-            const Text(
-              'Students can scan to mark attendance',
-              style: TextStyle(color: Colors.white70, fontSize: 16),
-            ),
-            
+            const Text('Students can scan to mark attendance', style: TextStyle(color: Colors.white70, fontSize: 16)),
             const Spacer(),
-            
-            // Stop button
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 32),
               child: SizedBox(
@@ -349,19 +348,10 @@ class StopAttendancePage extends StatelessWidget {
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.red,
                     padding: const EdgeInsets.symmetric(vertical: 18),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(28),
-                    ),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
                   ),
                   onPressed: () => _onStopAttendance(context),
-                  child: const Text(
-                    'Stop Attendance Session',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 18,
-                    ),
-                  ),
+                  child: const Text('Stop Attendance Session', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18)),
                 ),
               ),
             ),
@@ -371,3 +361,4 @@ class StopAttendancePage extends StatelessWidget {
     );
   }
 }
+
