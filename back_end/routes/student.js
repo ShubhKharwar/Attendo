@@ -292,11 +292,13 @@ studentRouter.post("/markAttendance", auth, async (req, res) => {
     if (attendanceEntry) {
       // Subject found - increment presentDays
       attendanceEntry.presentDays += 1;
+      // Mark the array as modified so Mongoose knows to save it
+      user.markModified('attendanceLog');
     } else {
       // Subject not found - create new entry
       user.attendanceLog.push({
         subject: subject,
-        presentDays: presentDays,
+        presentDays: 1,
         totalDays: 0,
       });
     }
