@@ -144,8 +144,8 @@ const DailyRecommendedTask = mongoose.model(
 
 // below TemporaryPassword model
 const syllabusSchema = new mongoose.Schema({
-  subjectCode: { type: String, required: true },
-  class:       { type: String, required: true },
+  SubjectCode: { type: String, required: true },
+  Class:       { type: String, required: true },
   teacherRollNo:{ type: String, required: true },
   key:         { type: String, required: true },  // object key in B2
   url:         { type: String, required: true },  // public or signed URL
