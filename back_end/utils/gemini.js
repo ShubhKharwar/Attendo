@@ -37,7 +37,7 @@ async function extractInfoFromPdf(pdfBuffer, mimeType) {
           "rollNo": "CB.EN.U4XYZ21002",
           "email": "jane.doe@university.edu",
           "userType": "student",
-          "class": "CSE-B"
+          "class": "CSE-B / (N/A for userType admin"
         }
       ]
       If a class is not specified for an admin, that field can be omitted for that entry.
