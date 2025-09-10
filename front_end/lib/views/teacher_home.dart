@@ -3,12 +3,14 @@ import 'package:http/http.dart' as http;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'dart:convert';
 import 'loginview.dart';
-import 'dart:async'; // Import for Timer
+import 'dart:async';
+import 'package:intl/intl.dart';
+
 import 'teacher_attendance_page.dart';
 import 'teacher_schedule_page.dart';
 import 'teacher_upload_page.dart';
 
-
+// --- Data Model & Color Constants ---
 class TeacherClass {
   final String className;
   final String venue;
@@ -23,6 +25,10 @@ class TeacherClass {
   });
 }
 
+const Color kPrimaryColor = Color(0xFF4CAF50);
+const Color kBackgroundColor = Colors.black;
+const Color kCardColor = Color(0xFF1E1E1E);
+
 class TeacherHomeScreen extends StatefulWidget {
   const TeacherHomeScreen({super.key});
 
@@ -32,12 +38,11 @@ class TeacherHomeScreen extends StatefulWidget {
 
 class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
   String _teacherName = 'Loading...';
-  TeacherClass? _nextClass; // Use the TeacherClass model
+  TeacherClass? _nextClass;
   final _storage = const FlutterSecureStorage();
   late Timer _timer;
 
-  // --- 1. SIMULATED DATA (used for now) ---
-  // This list is used while the backend logic is commented out.
+  // --- 1. SIMULATED DATA (from your logic) ---
   List<TeacherClass> _classes = [
     TeacherClass(
       className: 'Database Management Systems',
@@ -85,7 +90,7 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
     super.dispose();
   }
 
-  // --- 2. NEW BACKEND LOGIC (commented out) ---
+  // --- 2. BACKEND LOGIC (from your code, commented out) ---
   /*
   Future<void> _fetchTeacherSchedule() async {
     print("Fetching teacher schedule from backend...");
@@ -147,19 +152,28 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
     final today = DateTime.now();
     TeacherClass? upcomingClass;
 
+    // Sort classes by start time to ensure the next one is found correctly
+    _classes.sort((a, b) {
+      final aDateTime = DateTime(today.year, today.month, today.day, a.startTime.hour, a.startTime.minute);
+      final bDateTime = DateTime(today.year, today.month, today.day, b.startTime.hour, b.startTime.minute);
+      return aDateTime.compareTo(bDateTime);
+    });
+
     for (final classItem in _classes) {
       final startTime = DateTime(today.year, today.month, today.day, classItem.startTime.hour, classItem.startTime.minute);
       final nowTime = DateTime(today.year, today.month, today.day, now.hour, now.minute);
 
       if (nowTime.isBefore(startTime)) {
         upcomingClass = classItem;
-        break;
+        break; // Found the very next class, so we can stop looping
       }
     }
 
-    setState(() {
-      _nextClass = upcomingClass;
-    });
+    if (mounted) {
+      setState(() {
+        _nextClass = upcomingClass;
+      });
+    }
   }
 
   Future<void> _fetchTeacherData() async {
@@ -172,7 +186,6 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
         return;
       }
 
-      // Try to load cached name first
       final cachedName = await _storage.read(key: 'teacher_name');
       if (cachedName != null && mounted) {
         setState(() {
@@ -180,7 +193,7 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
         });
       }
 
-      final url = Uri.parse('http://192.168.0.104:3000/api/v1/student/profile');
+      final url = Uri.parse('http://192.168.0.104:3000/api/v1/student/profile'); // ⚠️ Should this be /teacher/profile ?
 
       final response = await http.get(
         url,
@@ -193,10 +206,7 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
       if (response.statusCode == 200 && mounted) {
         final data = json.decode(response.body);
         final name = data['name'] ?? 'Teacher';
-
-        // Cache the name for future use
         await _storage.write(key: 'teacher_name', value: name);
-
         setState(() {
           _teacherName = name;
         });
@@ -205,14 +215,12 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
         _logout();
       } else {
         print('Failed to load teacher data. Status code: ${response.statusCode}');
-        // Only show error if we don't have cached data
         if (mounted && cachedName == null) {
           setState(() => _teacherName = 'Error');
         }
       }
     } catch (e) {
       print('An error occurred while fetching teacher data: $e');
-      // Try to get cached name before showing error
       final cachedName = await _storage.read(key: 'teacher_name');
       if (mounted) {
         setState(() {
@@ -222,11 +230,8 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
     }
   }
 
-
   Future<void> _logout() async {
-    await _storage.delete(key: 'auth_token');
-    await _storage.delete(key: 'user_role');
-    await _storage.delete(key: 'teacher_name'); // Clear cached name
+    await _storage.deleteAll(); // deleteAll is simpler and safer
     if (mounted) {
       Navigator.of(context).pushAndRemoveUntil(
         MaterialPageRoute(builder: (context) => const LoginView()),
@@ -235,66 +240,75 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
     }
   }
 
-
+  // --- UI BUILD METHOD ---
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: kBackgroundColor,
       drawer: _buildAppDrawer(),
-      bottomNavigationBar: _buildBottomNavBar(),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const TeacherAttendancePage())),
+        backgroundColor: kPrimaryColor,
+        tooltip: 'Take Attendance',
+        child: const Icon(Icons.qr_code_2, color: Colors.white, size: 30),
+      ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
+      bottomNavigationBar: _buildBottomAppBar(),
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildTopBar(),
-              const SizedBox(height: 40),
-              _buildGreeting(),
-              const SizedBox(height: 50),
-              _buildNextClassCard(),
-              const SizedBox(height: 50),
-              _buildTakeAttendanceButton(),
-              const SizedBox(height: 30),
-              _buildTeacherStatsButton(),
-              const Spacer(),
-              const SizedBox(height: 20),
-            ],
+        child: SingleChildScrollView(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const SizedBox(height: 16),
+                _buildTopBar(),
+                const SizedBox(height: 30),
+                _buildGreeting(),
+                const SizedBox(height: 30),
+                _buildNextClassCard(),
+                const SizedBox(height: 30),
+                _buildSectionHeader("Tools"),
+                const SizedBox(height: 16),
+                _buildActionCard(
+                  title: 'Take Attendance',
+                  icon: Icons.qr_code_scanner,
+                  onTap: () {
+                    Navigator.push(context, MaterialPageRoute(builder: (context) => const TeacherAttendancePage()));
+                  },
+                ),
+                const SizedBox(height: 12),
+                _buildActionCard(
+                  title: 'View Statistics',
+                  icon: Icons.analytics,
+                  onTap: () {
+                    // Navigate to stats page
+                  },
+                ),
+                const SizedBox(height: 100), // Space for bottom nav
+              ],
+            ),
           ),
         ),
       ),
     );
   }
 
+  // --- UI HELPER WIDGETS ---
   Widget _buildTopBar() {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        PopupMenuButton<String>(
-          onSelected: (value) {
-            if (value == 'profile') {
-              print('Profile selected');
-            } else if (value == 'logout') {
-              _logout();
-            }
-          },
-          itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
-            const PopupMenuItem<String>(
-              value: 'profile',
-              child: Text('Profile'),
-            ),
-            const PopupMenuItem<String>(
-              value: 'logout',
-              child: Text('Logout'),
-            ),
-          ],
-          icon: const Icon(Icons.person, color: Colors.white, size: 30),
-        ),
         Builder(
           builder: (context) => IconButton(
-            icon: const Icon(Icons.menu, color: Colors.white, size: 30),
+            icon: const Icon(Icons.menu, color: Colors.white, size: 28),
             onPressed: () => Scaffold.of(context).openDrawer(),
           ),
+        ),
+        const CircleAvatar(
+          radius: 20,
+          backgroundColor: kCardColor,
+          child: Icon(Icons.person, color: Colors.white70),
         ),
       ],
     );
@@ -304,20 +318,20 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          'Hi,',
-          style: TextStyle(
-            color: Colors.white,
-            fontSize: 36,
-            fontWeight: FontWeight.w300,
-          ),
-        ),
         Text(
-          _teacherName,
+          'Hi, $_teacherName',
           style: const TextStyle(
             color: Colors.white,
-            fontSize: 40,
+            fontSize: 32,
             fontWeight: FontWeight.bold,
+          ),
+        ),
+        const SizedBox(height: 4),
+        const Text(
+          "Here are your tasks for the day.",
+          style: TextStyle(
+            color: Colors.white70,
+            fontSize: 16,
           ),
         ),
       ],
@@ -326,239 +340,170 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
 
   Widget _buildNextClassCard() {
     return GestureDetector(
-      onTap: () {Navigator.push(
-          context,
-          MaterialPageRoute(builder: (context) => const TeacherSchedulePage()),);
-      },
+      onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const TeacherSchedulePage())),
       child: Container(
         width: double.infinity,
-        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 30),
+        padding: const EdgeInsets.all(24),
         decoration: BoxDecoration(
-          color: const Color(0xFF4CAF50),
+          color: kPrimaryColor,
           borderRadius: BorderRadius.circular(20),
         ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    _nextClass?.className ?? 'No upcoming classes',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 28,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  if (_nextClass != null)
-                    Text(
-                      _nextClass!.venue,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w400,
-                      ),
-                    )
-                  else
-                    const Text(
-                      'Enjoy your free time!',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 18,
-                      ),
-                    ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 16), // Add spacing between title and time
-            if (_nextClass != null)
-              Text(
-                '${_nextClass!.startTime.format(context)} - ${_nextClass!.endTime.format(context)}',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 18,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildTakeAttendanceButton() {
-    return GestureDetector(
-      onTap: () {
-        Navigator.push(
-          context,
-          MaterialPageRoute(builder: (context) => const TeacherAttendancePage()),
-        );
-      },
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          const Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Take\nattendance',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 28,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              SizedBox(height: 4),
-              Text(
-                'start attendance session',
-                style: TextStyle(color: Colors.grey, fontSize: 14),
-              ),
-            ],
-          ),
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: const Color(0xFF4CAF50),
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: const Icon(Icons.qr_code,
-                color: Colors.white, size: 48),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildTeacherStatsButton() {
-    return GestureDetector(
-      onTap: () {
-        // Navigate to teacher statistics or analytics page
-        print('Navigate to teacher statistics');
-      },
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-        decoration: BoxDecoration(
-          color: Colors.grey[800],
-          borderRadius: BorderRadius.circular(30),
-        ),
-        child: const Row(
-          mainAxisSize: MainAxisSize.min,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'View attendance statistics',
-              style:
-              TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+              _nextClass?.className ?? 'No upcoming classes',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
+              ),
             ),
-            SizedBox(width: 10),
-            CircleAvatar(
-              radius: 15,
-              backgroundColor: Colors.orange,
-              child: Icon(Icons.analytics, color: Colors.white, size: 18),
+            const SizedBox(height: 8),
+            Text(
+              _nextClass != null ? _nextClass!.venue : 'Enjoy your free time!',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 16,
+              ),
             ),
+            if (_nextClass != null) ...[
+              const SizedBox(height: 16),
+              Align(
+                alignment: Alignment.centerRight,
+                child: Text(
+                  'Starts at: ${_nextClass!.startTime.format(context)}',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+            ]
           ],
         ),
       ),
     );
   }
 
-  Widget _buildAppDrawer() {
-    return Drawer(
-      backgroundColor: Colors.grey[900],
-      child: ListView(
-        padding: EdgeInsets.zero,
-        children: <Widget>[
-          const DrawerHeader(
-            decoration: BoxDecoration(
-              color: Color(0xFF4CAF50),
-            ),
-            child: Text(
-              'Teacher Dashboard',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 24,
-              ),
-            ),
-          ),
-          ListTile(
-            leading: const Icon(Icons.schedule, color: Colors.white),
-            title: const Text('My Schedule', style: TextStyle(color: Colors.white)),
-            onTap: () {
-              Navigator.pop(context);
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => const TeacherSchedulePage()),
-              );
-            },
-          ),
-          ListTile(
-            leading: const Icon(Icons.upload_file, color: Colors.white),
-            title: const Text('Upload Data', style: TextStyle(color: Colors.white)),
-            onTap: () {
-              Navigator.pop(context);
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => const TeacherUploadPage()),
-              );
-            },
-          ),
-          ListTile(
-            leading: const Icon(Icons.analytics, color: Colors.white),
-            title: const Text('Analytics', style: TextStyle(color: Colors.white)),
-            onTap: () => Navigator.pop(context),
-          ),
-          ListTile(
-            leading: const Icon(Icons.people, color: Colors.white),
-            title: const Text('Students', style: TextStyle(color: Colors.white)),
-            onTap: () => Navigator.pop(context),
-          ),
-        ],
+  Widget _buildSectionHeader(String title) {
+    return Text(
+      title,
+      style: const TextStyle(
+        color: Colors.white,
+        fontSize: 20,
+        fontWeight: FontWeight.bold,
       ),
     );
   }
 
-
-  Widget _buildBottomNavBar() {
+  Widget _buildActionCard({
+    required String title,
+    required IconData icon,
+    required VoidCallback onTap,
+  }) {
     return Container(
-      height: 80,
       decoration: BoxDecoration(
-        color: Colors.grey[900],
-        borderRadius: const BorderRadius.only(
-          topLeft: Radius.circular(20),
-          topRight: Radius.circular(20),
+        color: kCardColor,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+            child: Row(
+              children: [
+                Icon(icon, color: Colors.white70, size: 28),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+                const Icon(Icons.arrow_forward_ios, color: Colors.white54, size: 16),
+              ],
+            ),
+          ),
         ),
       ),
+    );
+  }
+
+  BottomAppBar _buildBottomAppBar() {
+    return BottomAppBar(
+      color: kCardColor,
+      shape: const CircularNotchedRectangle(),
+      notchMargin: 8.0,
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
           IconButton(
             icon: const Icon(Icons.analytics_outlined, color: Colors.grey, size: 30),
             onPressed: () {},
+            tooltip: 'Statistics',
           ),
-          GestureDetector(
-            onTap: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => const TeacherAttendancePage()),
-              );
-            },
-            child: Container(
-              width: 60,
-              height: 60,
-              decoration: const BoxDecoration(
-                shape: BoxShape.circle,
-                color: Color(0xFF4CAF50),
-              ),
-              child: const Icon(Icons.qr_code,
-                  color: Colors.white, size: 35),
-            ),
-          ),
+          const SizedBox(width: 48), // The space for the notch
           IconButton(
             icon: const Icon(Icons.people_outlined, color: Colors.grey, size: 30),
             onPressed: () {},
+            tooltip: 'Students',
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAppDrawer() {
+    return Drawer(
+      backgroundColor: kCardColor,
+      child: ListView(
+        padding: EdgeInsets.zero,
+        children: <Widget>[
+          const DrawerHeader(
+            decoration: BoxDecoration(color: kPrimaryColor),
+            child: Text(
+              'Teacher Menu',
+              style: TextStyle(color: Colors.white, fontSize: 24),
+            ),
+          ),
+          ListTile(
+            leading: const Icon(Icons.schedule, color: Colors.white70),
+            title: const Text('My Schedule', style: TextStyle(color: Colors.white)),
+            onTap: () {
+              Navigator.pop(context);
+              Navigator.push(context, MaterialPageRoute(builder: (context) => const TeacherSchedulePage()));
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.upload_file, color: Colors.white70),
+            title: const Text('Upload Data', style: TextStyle(color: Colors.white)),
+            onTap: () {
+              Navigator.pop(context);
+              Navigator.push(context, MaterialPageRoute(builder: (context) => const TeacherUploadPage()));
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.analytics, color: Colors.white70),
+            title: const Text('Analytics', style: TextStyle(color: Colors.white)),
+            onTap: () => Navigator.pop(context),
+          ),
+          const Divider(color: Colors.white24),
+          ListTile(
+            leading: const Icon(Icons.logout, color: Colors.redAccent),
+            title: const Text('Logout', style: TextStyle(color: Colors.redAccent)),
+            onTap: () {
+              Navigator.pop(context);
+              _logout();
+            },
           ),
         ],
       ),
