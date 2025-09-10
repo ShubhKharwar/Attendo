@@ -129,7 +129,6 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
-
   Future<void> _fetchUserData() async {
     try {
       final token = await _storage.read(key: 'auth_token');
@@ -138,6 +137,14 @@ class _HomeScreenState extends State<HomeScreen> {
         print('No token found, navigating to login.');
         _logout();
         return;
+      }
+
+      // Try to load cached name first
+      final cachedName = await _storage.read(key: 'student_name');
+      if (cachedName != null && mounted) {
+        setState(() {
+          _userName = cachedName;
+        });
       }
 
       final url = Uri.parse('http://192.168.0.104:3000/api/v1/student/profile');
@@ -152,24 +159,40 @@ class _HomeScreenState extends State<HomeScreen> {
 
       if (response.statusCode == 200 && mounted) {
         final data = json.decode(response.body);
+        final name = data['name'] ?? 'User';
+
+        // Cache the name for future use
+        await _storage.write(key: 'student_name', value: name);
+
         setState(() {
-          _userName = data['name'] ?? 'User';
+          _userName = name;
         });
       } else if (response.statusCode == 401 && mounted) {
         print('Token is invalid or expired. Logging out.');
         _logout();
       } else {
         print('Failed to load user data. Status code: ${response.statusCode}');
-        if (mounted) setState(() => _userName = 'Error');
+        // Only show error if we don't have cached data
+        if (mounted && cachedName == null) {
+          setState(() => _userName = 'Error');
+        }
       }
     } catch (e) {
       print('An error occurred while fetching user data: $e');
-      if (mounted) setState(() => _userName = 'Error');
+      // Try to get cached name before showing error
+      final cachedName = await _storage.read(key: 'student_name');
+      if (mounted) {
+        setState(() {
+          _userName = cachedName ?? 'Error';
+        });
+      }
     }
   }
 
   Future<void> _logout() async {
     await _storage.delete(key: 'auth_token');
+    await _storage.delete(key: 'user_role');
+    await _storage.delete(key: 'student_name'); // Clear cached name
     if (mounted) {
       Navigator.of(context).pushAndRemoveUntil(
         MaterialPageRoute(builder: (context) => const LoginView()),
@@ -325,7 +348,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-
   Widget _buildMarkAttendanceButton() {
     return GestureDetector(
       onTap: () {
@@ -480,4 +502,3 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 }
-
