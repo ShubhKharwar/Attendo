@@ -31,16 +31,14 @@ const userSchema = new mongoose.Schema(
       required: [true, "Password is required."],
     },
     userType: {
-        type: String,
-        enum: ['student', 'admin'],
-        required: [true, 'User type is required.'],
-        default: 'student'
+      type: String,
+      enum: ["student", "admin"],
+      required: [true, "User type is required."],
+      default: "student",
     },
     interests: { type: [String], default: [] },
     interestsSelected: { type: Boolean, default: false },
-    class:{type:String,
-      required:[true, "class is required"]
-    },
+    class: { type: String, required: [true, "class is required"] },
     // attendanceLog: [
     //   {
     //     sessionId: String, // uniquely identifies the session (e.g., a UUID from the QR)
@@ -48,8 +46,8 @@ const userSchema = new mongoose.Schema(
     //     status: { type: String, enum: ["present"], default: "present" }, // can be extended
     //   },
     // ],
-    SubjectsInfo : [],
-    attendanceLog:[],
+    SubjectsInfo: [],
+    attendanceLog: [],
     lastSessionId: { type: String, default: null }, // Track last session to prevent duplicates
     presentDays: { type: Number, default: 0 },
     totalDays: { type: Number, default: 0 },
@@ -104,6 +102,41 @@ const temporaryPasswordSchema = new mongoose.Schema(
 const TemporaryPassword = mongoose.model(
   "TemporaryPassword",
   temporaryPasswordSchema
+);
+
+/* ==== NEW: DAILY RECOMMENDED TASK SCHEMA ==== */
+const dailyRecommendedTaskSchema = new mongoose.Schema(
+  {
+    student: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+    },
+    date: { type: String, required: true }, // yyyy-MM-dd
+    tasks: [
+      {
+        taskId: { type: String, required: true },
+        title: { type: String, required: true },
+        estimatedTime: { type: Number, required: true },
+        taskType: { type: String, required: true },
+        courseTags: { type: [String], default: [] },
+        topicTags: { type: [String], default: [] },
+        reasoning: { type: String, default: "" },
+        urgencyLevel: {
+          type: String,
+          enum: ["low", "medium", "high"],
+          default: "medium",
+        },
+      },
+    ],
+  },
+  { timestamps: true }
+);
+
+dailyRecommendedTaskSchema.index({ student: 1, date: 1 }, { unique: true });
+const DailyRecommendedTask = mongoose.model(
+  "DailyRecommendedTask",
+  dailyRecommendedTaskSchema
 );
 
 // --- Database Connection ---

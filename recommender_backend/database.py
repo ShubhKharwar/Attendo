@@ -127,6 +127,25 @@ class TaskFeedback(SQLModel, table=True):
 
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
+# database.py  (add after other models)
+
+class DailyRecommendedTask(SQLModel, table=True):
+    __tablename__ = "daily_recommended_tasks"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: str = Field(foreign_key="user_profiles.user_id", index=True)
+    date: str = Field(index=True, regex=r"^\d{4}-\d{2}-\d{2}$")
+
+    # store JSON list of tasks
+    recommendations: List[Dict[str, Any]] = Field(
+        sa_column=Column(JSON), default_factory=list
+    )
+
+    generated_at: datetime = Field(default_factory=datetime.utcnow)
+
+    __table_args__ = (UniqueConstraint("user_id", "date", name="unique_user_date"),)
+
+
 # Add the missing import
 from fastapi import Depends
 
