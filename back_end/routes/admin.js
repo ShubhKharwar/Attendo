@@ -5,6 +5,7 @@ const multer = require('multer');
 const crypto = require('crypto');
 const { User, TemporaryPassword } = require('../db');
 const { extractInfoFromPdf, extractTimetableFromPdf } = require('../utils/gemini');
+const { auth } = require('../auth')
 const jwt = require('jsonwebtoken');
 
 const adminRouter = Router();
@@ -323,6 +324,52 @@ adminRouter.get('/schedule',async (req, res) => {
     return res.status(500).json({ message: 'Internal server error.' });
   }
 });
+
+
+adminRouter.get('/courses', auth, async (req, res) => {
+    try {
+        // 1. Get student's roll number from the decoded JWT payload.
+        // Updated from 'rollNumber' to 'rollNo' to match your schema.
+        const TeacherRollNo = req.user.rollNo;
+        const TeacherName = req.user.name
+
+
+        // 2. Find the student in the database using their roll number.
+        // Using the User model now.
+        const teacher = await User.findOne({ rollNo : TeacherRollNo , name : TeacherName , userType : "admin" });
+
+        if (!teacher) {
+            return res.status(404).json({ message: 'Teacher not found.' });
+        }
+
+        const teacherInfo = teacher.SubjectsInfo;
+
+        if (!teacherInfo || teacherInfo.length === 0) {
+            // Return an empty array if the student has no subject information.
+            return res.status(200).json([]);
+        }
+
+        const uniqueSubjects = teacherInfo.filter((subject, index, self) =>
+            index === self.findIndex((s) => (
+                s.SubjectCode === subject.SubjectCode
+            ))
+        );
+
+        const Subjects = []
+
+        for(let i = 0 ; i < uniqueSubjects.length ; i++){
+          Subjects.push(uniqueSubjects[i].SubjectCode)
+        }
+
+        // 4. Return the list of subjects as JSON
+        res.status(200).json(Subjects);
+
+    } catch (error) {
+        console.error('Error fetching student courses:', error);
+        res.status(500).json({ message: 'Server error. Please try again later.' });
+    }
+});
+
 
 
 module.exports = adminRouter;

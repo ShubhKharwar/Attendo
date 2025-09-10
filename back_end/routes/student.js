@@ -251,7 +251,51 @@ studentRouter.get('/schedule', auth, async (req, res) => {
   }
 });
 
+studentRouter.get('/courses', auth, async (req, res) => {
+    try {
+        // 1. Get student's roll number from the decoded JWT payload.
+        // Updated from 'rollNumber' to 'rollNo' to match your schema.
+        const studentRollNo = req.user.rollNo;
 
+        if (!studentRollNo) {
+            return res.status(400).json({ message: 'Roll number not found in token.' });
+        }
 
-module.exports = studentRouter;
+        // 2. Find the student in the database using their roll number.
+        // Using the User model now.
+        const student = await User.findOne({ rollNo: studentRollNo });
 
+        if (!student) {
+            return res.status(404).json({ message: 'Student not found.' });
+        }
+
+        // 3. Get the SubjectsInfo array directly from the student document.
+        const subjectsInfo = student.SubjectsInfo;
+
+        if (!subjectsInfo || subjectsInfo.length === 0) {
+            // Return an empty array if the student has no subject information.
+            return res.status(200).json([]);
+        }
+
+        const uniqueSubjects = subjectsInfo.filter((subject, index, self) =>
+            index === self.findIndex((s) => (
+                s.SubjectCode === subject.SubjectCode
+            ))
+        );
+
+        const Subjects = []
+
+        for(let i = 0 ; i < uniqueSubjects.length ; i++){
+          Subjects.push(uniqueSubjects[i].SubjectCode)
+        }
+
+        // 4. Return the list of subjects as JSON
+        res.status(200).json(Subjects);
+
+    } catch (error) {
+        console.error('Error fetching student courses:', error);
+        res.status(500).json({ message: 'Server error. Please try again later.' });
+    }
+});
+
+module.exports = studentRouter
