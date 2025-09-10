@@ -48,9 +48,7 @@ const userSchema = new mongoose.Schema(
     // ],
     SubjectsInfo: [],
     attendanceLog: [],
-    lastSessionId: { type: String, default: null }, // Track last session to prevent duplicates
-    presentDays: { type: Number, default: 0 },
-    totalDays: { type: Number, default: 0 },
+    lastSessionId: { type: String, default: null } // Track last session to prevent duplicates
   },
   {
     timestamps: true,
@@ -107,28 +105,33 @@ const TemporaryPassword = mongoose.model(
 /* ==== NEW: DAILY RECOMMENDED TASK SCHEMA ==== */
 const dailyRecommendedTaskSchema = new mongoose.Schema(
   {
-    student: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
-      required: true,
-    },
+    student: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
     date: { type: String, required: true }, // yyyy-MM-dd
     tasks: [
       {
         taskId: { type: String, required: true },
         title: { type: String, required: true },
-        estimatedTime: { type: Number, required: true },
+        description: { type: String, default: "" },
+        estimatedTime: { type: Number, required: true }, // in minutes
         taskType: { type: String, required: true },
         courseTags: { type: [String], default: [] },
         topicTags: { type: [String], default: [] },
         reasoning: { type: String, default: "" },
-        urgencyLevel: {
-          type: String,
-          enum: ["low", "medium", "high"],
-          default: "medium",
-        },
-      },
+        urgencyLevel: { type: String, enum: ["low","medium","high"], default: "medium" },
+        
+        // TIME SLOT FIELDS:
+        suggestedStartTime: { type: String }, // "14:30" format
+        suggestedEndTime: { type: String },   // "14:45" format
+        isScheduled: { type: Boolean, default: false }, // Whether user has placed it in schedule
+        actualStartTime: { type: String },   // User's chosen time (if different from suggested)
+        actualEndTime: { type: String },
+        
+        // METADATA:
+        rank: { type: Number }, // 1, 2, 3 (recommendation priority)
+        difficultyLevel: { type: String, enum: ["easy","medium","hard"], default: "medium" }
+      }
     ],
+    generatedAt: { type: Date, default: Date.now }
   },
   { timestamps: true }
 );
