@@ -83,15 +83,13 @@ class OnboardingScreen extends StatelessWidget {
                   _buildProgressBar(Alignment.centerLeft),
                   const SizedBox(height: 20),
                   Expanded(
-                    child: Image.network(
-                      'https://firebasestorage.googleapis.com/v0/b/gemini-beta-d9c91.appspot.com/o/onboarding_illustration.png?alt=media&token=e982c7f5-9382-4919-b3a9-a681335f6f4c',
-                      errorBuilder: (context, error, stackTrace) {
-                        return const Center(child: Text('Image not available', style: TextStyle(color: Colors.white)));
-                      },
-                      loadingBuilder: (context, child, loadingProgress) {
-                        if (loadingProgress == null) return child;
-                        return const Center(child: CircularProgressIndicator(valueColor: AlwaysStoppedAnimation<Color>(Colors.white)));
-                      },
+                    child: Image.asset(
+                      'assets/images/onboarding_image.png', // <--- Updated to use local asset
+                      fit: BoxFit.contain, // You might want to adjust the fit
+                      // errorBuilder and loadingBuilder are not typically used with Image.asset,
+                      // as local assets are usually guaranteed to be present and load instantly.
+                      // If you still want a placeholder for a very large local image or in rare cases,
+                      // you could implement a simple placeholder, but it's usually not necessary.
                     ),
                   ),
                   const SizedBox(height: 20),
@@ -149,4 +147,3 @@ class OnboardingScreen extends StatelessWidget {
     );
   }
 }
-

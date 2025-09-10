@@ -150,10 +150,10 @@ class _LoginViewState extends State<LoginView> {
     return Scaffold(
       backgroundColor: Colors.black,
       body: SafeArea(
-        child: Column(
+        child: Column( // This is the main Column
           children: [
             _buildProgressBar(Alignment.center),
-            Expanded(
+            Expanded( // This widget takes up all available space
               child: SingleChildScrollView(
                 padding: const EdgeInsets.symmetric(horizontal: 24.0),
                 child: Column(
@@ -257,6 +257,18 @@ class _LoginViewState extends State<LoginView> {
                       ),
                     ),
                   ],
+                ),
+              ),
+            ),
+            // --- The image is now outside the Expanded and SingleChildScrollView ---
+            Padding(
+              // Added padding for better spacing from the screen edge
+              padding: const EdgeInsets.only(bottom: 20.0, top: 10.0),
+              child: Center(
+                child: Image.asset(
+                  'assets/images/login_image.png', // Make sure this path is correct
+                  height: 220, // <-- Increased the height
+                  fit: BoxFit.contain,
                 ),
               ),
             ),

@@ -5,9 +5,11 @@ import 'package:http/http.dart' as http;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'dart:convert';
 import 'loginview.dart';
-import 'schedule_page.dart'; // --- MODIFIED: Import is now used for the Task model
+import 'schedule_page.dart';
 import 'dart:async';
-import 'package:intl/intl.dart'; // --- ADDED: Needed for date formatting
+import 'package:intl/intl.dart';
+import 'my_courses_page.dart';
+import 'student_profile_page.dart'; // Corrected import
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -22,15 +24,15 @@ class _HomeScreenState extends State<HomeScreen> {
   final _storage = const FlutterSecureStorage();
   late Timer _timer;
 
-  // --- REMOVED: The hardcoded, simulated _tasks list is no longer needed ---
-
   @override
   void initState() {
     super.initState();
-    _fetchUserData();
-    _fetchSchedule(); // --- MODIFIED: Fetch live data from the backend on startup
+    // Fetch data after the first frame is built to avoid UI lag
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _fetchUserData();
+      _fetchSchedule();
+    });
 
-    // This timer will re-fetch the schedule every minute to get updates
     _timer = Timer.periodic(const Duration(minutes: 1), (timer) {
       if (mounted) {
         _fetchSchedule();
@@ -44,16 +46,13 @@ class _HomeScreenState extends State<HomeScreen> {
     super.dispose();
   }
 
-  // --- ADDED & CORRECTED: This function now fetches and processes live data ---
   Future<void> _fetchSchedule() async {
     try {
       final token = await _storage.read(key: 'auth_token');
       if (token == null) return;
 
-      // 1. Get today's date and format it for the API query
       final String formattedDate = DateFormat('yyyy-MM-dd').format(DateTime.now());
-      // IMPORTANT: Replace 'YOUR_SERVER_IP' with your actual IP address
-      final url = Uri.parse('http://YOUR_SERVER_IP:3000/api/v1/student/schedule?date=$formattedDate');
+      final url = Uri.parse('http://192.168.0.104:3000/api/v1/student/schedule?date=$formattedDate');
 
       final response = await http.get(
         url,
@@ -61,16 +60,13 @@ class _HomeScreenState extends State<HomeScreen> {
       );
 
       if (response.statusCode == 200 && mounted) {
-        // 2. Correctly parse the JSON object and access the 'classes' list
         final data = json.decode(response.body);
         final List<dynamic> classesJson = data['classes'] ?? [];
 
-        // 3. Map the JSON data to your Task model using the factory from schedule_page.dart
         final List<Task> todaysTasks = classesJson
             .map((jsonItem) => Task.fromApi(jsonItem))
             .toList();
 
-        // 4. Find the current task from the fetched list
         _findCurrentTask(todaysTasks);
 
       } else {
@@ -81,7 +77,6 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  // --- MODIFIED: This function now takes a list of tasks as an argument ---
   void _findCurrentTask(List<Task> tasks) {
     final now = TimeOfDay.now();
     final today = DateTime.now();
@@ -94,7 +89,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
       if (!nowTime.isBefore(startTime) && nowTime.isBefore(endTime)) {
         activeTask = task;
-        break; // Found the current task, no need to check further
+        break;
       }
     }
 
@@ -108,14 +103,11 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _fetchUserData() async {
     try {
       final token = await _storage.read(key: 'auth_token');
-
       if (token == null) {
-        print('No token found, navigating to login.');
         _logout();
         return;
       }
 
-      // Try to load cached name first
       final cachedName = await _storage.read(key: 'student_name');
       if (cachedName != null && mounted) {
         setState(() {
@@ -123,9 +115,7 @@ class _HomeScreenState extends State<HomeScreen> {
         });
       }
 
-      // IMPORTANT: Replace 'YOUR_SERVER_IP' with your actual IP address
-      final url = Uri.parse('http://YOUR_SERVER_IP:3000/api/v1/student/profile');
-
+      final url = Uri.parse('http://192.168.0.104:3000/api/v1/student/profile');
       final response = await http.get(
         url,
         headers: {
@@ -137,23 +127,18 @@ class _HomeScreenState extends State<HomeScreen> {
       if (response.statusCode == 200 && mounted) {
         final data = json.decode(response.body);
         final name = data['name'] ?? 'User';
-
         await _storage.write(key: 'student_name', value: name);
-
         setState(() {
           _userName = name;
         });
       } else if (response.statusCode == 401 && mounted) {
-        print('Token is invalid or expired. Logging out.');
         _logout();
       } else {
-        print('Failed to load user data. Status code: ${response.statusCode}');
         if (mounted && cachedName == null) {
           setState(() => _userName = 'Error');
         }
       }
     } catch (e) {
-      print('An error occurred while fetching user data: $e');
       final cachedName = await _storage.read(key: 'student_name');
       if (mounted) {
         setState(() {
@@ -164,9 +149,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _logout() async {
-    await _storage.delete(key: 'auth_token');
-    await _storage.delete(key: 'user_role');
-    await _storage.delete(key: 'student_name');
+    await _storage.deleteAll();
     if (mounted) {
       Navigator.of(context).pushAndRemoveUntil(
         MaterialPageRoute(builder: (context) => const LoginView()),
@@ -205,38 +188,25 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // --- The rest of your UI build methods remain unchanged ---
-  // ... _buildTopBar(), _buildGreeting(), _buildNextTaskCard(), etc. ...
-
   Widget _buildTopBar() {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        PopupMenuButton<String>(
-          onSelected: (value) {
-            if (value == 'profile') {
-              print('Profile selected');
-            } else if (value == 'logout') {
-              _logout();
-            }
-          },
-          itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
-            const PopupMenuItem<String>(
-              value: 'profile',
-              child: Text('Profile'),
-            ),
-            const PopupMenuItem<String>(
-              value: 'logout',
-              child: Text('Logout'),
-            ),
-          ],
-          icon: const Icon(Icons.person, color: Colors.white, size: 30),
-        ),
         Builder(
           builder: (context) => IconButton(
             icon: const Icon(Icons.menu, color: Colors.white, size: 30),
             onPressed: () => Scaffold.of(context).openDrawer(),
           ),
+        ),
+        IconButton(
+          icon: const Icon(Icons.person, color: Colors.white, size: 30),
+          onPressed: () {
+            Navigator.push(
+              context,
+              // Corrected Page Name
+              MaterialPageRoute(builder: (context) => const ProfilePage()),
+            );
+          },
         ),
       ],
     );
@@ -421,14 +391,37 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
           ListTile(
-            leading: const Icon(Icons.pages, color: Colors.white),
-            title: const Text('Page 1', style: TextStyle(color: Colors.white)),
-            onTap: () => Navigator.pop(context),
+            leading: const Icon(Icons.book, color: Colors.white),
+            title: const Text('My Courses', style: TextStyle(color: Colors.white)),
+            onTap: () {
+              Navigator.pop(context);
+              Navigator.push(context, MaterialPageRoute(builder: (context) => const MyCoursesPage()));
+            },
           ),
           ListTile(
-            leading: const Icon(Icons.pages, color: Colors.white),
-            title: const Text('Page 2', style: TextStyle(color: Colors.white)),
-            onTap: () => Navigator.pop(context),
+            leading: const Icon(Icons.schedule, color: Colors.white),
+            title: const Text('My Schedule', style: TextStyle(color: Colors.white)),
+            onTap: () {
+              Navigator.pop(context);
+              Navigator.push(context, MaterialPageRoute(builder: (context) => const SchedulePage()));
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.leaderboard, color: Colors.white),
+            title: const Text('Leaderboard', style: TextStyle(color: Colors.white)),
+            onTap: () {
+              Navigator.pop(context);
+              Navigator.push(context, MaterialPageRoute(builder: (context) => const LeaderboardPage()));
+            },
+          ),
+          const Divider(color: Colors.grey),
+          ListTile(
+            leading: const Icon(Icons.logout, color: Colors.red),
+            title: const Text('Log Out', style: TextStyle(color: Colors.red)),
+            onTap: () {
+              Navigator.pop(context);
+              _logout();
+            },
           ),
         ],
       ),
