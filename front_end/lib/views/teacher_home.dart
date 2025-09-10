@@ -6,9 +6,8 @@ import 'loginview.dart';
 import 'dart:async'; // Import for Timer
 import 'teacher_attendance_page.dart';
 import 'teacher_schedule_page.dart';
+import 'teacher_upload_page.dart';
 
-// Import your TeacherAttendancePage
-// import 'teacher_attendance_page.dart'; // Uncomment and adjust path as needed
 
 class TeacherClass {
   final String className;
@@ -173,6 +172,14 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
         return;
       }
 
+      // Try to load cached name first
+      final cachedName = await _storage.read(key: 'teacher_name');
+      if (cachedName != null && mounted) {
+        setState(() {
+          _teacherName = cachedName;
+        });
+      }
+
       final url = Uri.parse('http://192.168.0.104:3000/api/v1/student/profile');
 
       final response = await http.get(
@@ -185,24 +192,41 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
 
       if (response.statusCode == 200 && mounted) {
         final data = json.decode(response.body);
+        final name = data['name'] ?? 'Teacher';
+
+        // Cache the name for future use
+        await _storage.write(key: 'teacher_name', value: name);
+
         setState(() {
-          _teacherName = data['name'] ?? 'Teacher';
+          _teacherName = name;
         });
       } else if (response.statusCode == 401 && mounted) {
         print('Token is invalid or expired. Logging out.');
         _logout();
       } else {
         print('Failed to load teacher data. Status code: ${response.statusCode}');
-        if (mounted) setState(() => _teacherName = 'Error');
+        // Only show error if we don't have cached data
+        if (mounted && cachedName == null) {
+          setState(() => _teacherName = 'Error');
+        }
       }
     } catch (e) {
       print('An error occurred while fetching teacher data: $e');
-      if (mounted) setState(() => _teacherName = 'Error');
+      // Try to get cached name before showing error
+      final cachedName = await _storage.read(key: 'teacher_name');
+      if (mounted) {
+        setState(() {
+          _teacherName = cachedName ?? 'Error';
+        });
+      }
     }
   }
 
+
   Future<void> _logout() async {
     await _storage.delete(key: 'auth_token');
+    await _storage.delete(key: 'user_role');
+    await _storage.delete(key: 'teacher_name'); // Clear cached name
     if (mounted) {
       Navigator.of(context).pushAndRemoveUntil(
         MaterialPageRoute(builder: (context) => const LoginView()),
@@ -210,6 +234,7 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
       );
     }
   }
+
 
   @override
   Widget build(BuildContext context) {
@@ -461,7 +486,24 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
           ListTile(
             leading: const Icon(Icons.schedule, color: Colors.white),
             title: const Text('My Schedule', style: TextStyle(color: Colors.white)),
-            onTap: () => Navigator.pop(context),
+            onTap: () {
+              Navigator.pop(context);
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const TeacherSchedulePage()),
+              );
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.upload_file, color: Colors.white),
+            title: const Text('Upload Data', style: TextStyle(color: Colors.white)),
+            onTap: () {
+              Navigator.pop(context);
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const TeacherUploadPage()),
+              );
+            },
           ),
           ListTile(
             leading: const Icon(Icons.analytics, color: Colors.white),
@@ -477,6 +519,7 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
       ),
     );
   }
+
 
   Widget _buildBottomNavBar() {
     return Container(
