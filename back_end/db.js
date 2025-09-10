@@ -168,4 +168,4 @@ const connectDB = async () => {
 };
 
 // export it
-module.exports = { User, TemporaryPassword, Syllabus, connectDB };
+module.exports = { User, TemporaryPassword, Syllabus, DailyRecommendedTask, connectDB };

@@ -34,16 +34,17 @@ function dayNameFromISO(isoDate) {
 }
 
 // Smart time slot assignment for recommendations
+// Fix the assignTimeSlots function in student.js
 function assignTimeSlots(existingClasses, recommendations, date) {
   const workingHours = {
-    start: 9 * 60,  // 9:00 AM in minutes
-    end: 18 * 60    // 6:00 PM in minutes
+    start: 9 * 60, // 9:00 AM in minutes
+    end: 18 * 60 // 6:00 PM in minutes
   };
 
   // Convert existing classes to busy time slots
   const busySlots = existingClasses.map(cls => ({
-    start: timeToMinutes(cls.StartTime),
-    end: timeToMinutes(cls.StartTime) + parseInt(cls.DurationOfClass?.replace(' minutes', '') || '60')
+    start: timeToMinutes(cls.startTime), // Fix: use startTime instead of StartTime
+    end: timeToMinutes(cls.startTime) + parseInt(cls.duration?.replace(' minutes', '') || '60')
   })).sort((a, b) => a.start - b.start);
 
   // Find available time gaps
@@ -84,21 +85,20 @@ function assignTimeSlots(existingClasses, recommendations, date) {
   // Sort recommendations by urgency and rank
   const sortedRecs = [...recommendations].sort((a, b) => {
     const urgencyWeight = { high: 3, medium: 2, low: 1 };
-    return (urgencyWeight[b.urgency_level] || 2) - (urgencyWeight[a.urgency_level] || 2) || 
+    return (urgencyWeight[b.urgency_level] || 2) - (urgencyWeight[a.urgency_level] || 2) ||
            (a.rank || 1) - (b.rank || 1);
   });
 
   for (const rec of sortedRecs) {
     const taskDuration = rec.estimated_time || 15;
-    
+
     // Find a suitable time slot
     while (slotIndex < availableSlots.length) {
       const slot = availableSlots[slotIndex];
-      
       if (slot.duration >= taskDuration) {
         const startTime = minutesToTime(slot.start);
         const endTime = minutesToTime(slot.start + taskDuration);
-        
+
         scheduledRecommendations.push({
           taskId: rec.task_id,
           title: rec.title,
@@ -119,7 +119,6 @@ function assignTimeSlots(existingClasses, recommendations, date) {
         // Update the slot
         slot.start += taskDuration + 5; // Add 5min buffer
         slot.duration -= (taskDuration + 5);
-        
         if (slot.duration < 10) { // Less than 10 minutes left
           slotIndex++;
         }
@@ -137,6 +136,7 @@ function assignTimeSlots(existingClasses, recommendations, date) {
 
   return scheduledRecommendations;
 }
+
 
 
 
@@ -346,6 +346,7 @@ function timeToMinutes(t) {
 // GET /student/schedule?date=yyyy-MM-dd
 // Requires Authorization: Bearer <token>
 // UPDATE your existing GET /schedule route in routes/student.js
+// UPDATE your existing GET /schedule route in routes/student.js
 studentRouter.get('/schedule', auth, async (req, res) => {
   try {
     const { date } = req.query;
@@ -366,7 +367,7 @@ studentRouter.get('/schedule', auth, async (req, res) => {
     // Fetch student data
     const student = await User.findOne(
       { rollNo, userType: 'student' },
-      { name: 1, rollNo: 1, class: 1, SubjectsInfo: 1, _id: 1 }
+      { name: 1, rollNo: 1, class: 1, SubjectsInfo: 1, interests: 1, _id: 1 }
     ).lean();
 
     if (!student) {
@@ -388,13 +389,63 @@ studentRouter.get('/schedule', auth, async (req, res) => {
 
     let allTasks = [...regularClasses];
 
-    // Get recommended tasks for the date
+    // Get/Generate recommended tasks for the date
     try {
-      const recommendedTasks = await DailyRecommendedTask.findOne({
+      let recommendedTasks = await DailyRecommendedTask.findOne({
         student: student._id,
         date: date
       }).lean();
 
+      // If no recommendations exist and it's today or future, generate them
+      const today = new Date().toISOString().slice(0, 10);
+      const isToday = date === today;
+      const isFuture = date > today;
+
+      if (!recommendedTasks && (isToday || isFuture)) {
+        console.log(`Generating recommendations for ${date}...`);
+
+        try {
+          // Prepare request for Python FastAPI
+          const ragRequest = {
+            user_id: rollNo,
+            break_duration_minutes: 15, // Default duration
+            current_courses: [...new Set(student.SubjectsInfo.map(s => s.SubjectCode))],
+            interests: student.interests || [],
+            recent_attendance: {} // You can enhance this based on attendanceLog
+          };
+
+          // Call Python FastAPI service
+          const response = await axios.post('http://localhost:8000/recommendations/', ragRequest, {
+            timeout: 10000,
+            headers: {
+              'Content-Type': 'application/json'
+            }
+          });
+
+          const recommendations = response.data;
+          console.log(`Received ${recommendations.length} recommendations from Python API`);
+
+          if (recommendations && recommendations.length > 0) {
+            // Assign time slots based on existing schedule
+            const scheduledTasks = assignTimeSlots(regularClasses, recommendations, date);
+            console.log(`Assigned time slots to ${scheduledTasks.length} recommendations`);
+
+            // Save to MongoDB
+            recommendedTasks = new DailyRecommendedTask({
+              student: student._id,
+              date,
+              tasks: scheduledTasks
+            });
+            await recommendedTasks.save();
+            console.log('Saved recommendations to MongoDB');
+          }
+        } catch (apiError) {
+          console.error('Error calling RAG API:', apiError.message);
+          console.error('API Error details:', apiError.response?.data || apiError.message);
+        }
+      }
+
+      // Add recommendation tasks to schedule if they exist
       if (recommendedTasks && recommendedTasks.tasks.length > 0) {
         const recommendationTasks = recommendedTasks.tasks
           .filter(task => task.suggestedStartTime) // Only include tasks with assigned time slots
@@ -412,9 +463,11 @@ studentRouter.get('/schedule', auth, async (req, res) => {
           }));
 
         allTasks = [...regularClasses, ...recommendationTasks];
+        console.log(`Added ${recommendationTasks.length} recommendations to schedule`);
       }
+
     } catch (recError) {
-      console.error('Error fetching recommendations for schedule:', recError);
+      console.error('Error fetching/generating recommendations for schedule:', recError);
     }
 
     // Sort all tasks by start time
@@ -432,6 +485,7 @@ studentRouter.get('/schedule', auth, async (req, res) => {
     return res.status(500).json({ message: 'Internal server error.' });
   }
 });
+
 
 studentRouter.get("/courses", auth, async (req, res) => {
   try {
