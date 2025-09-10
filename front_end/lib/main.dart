@@ -1,4 +1,5 @@
 import 'package:attendo/views/loginview.dart';
+import 'package:attendo/views/schedule_page.dart';
 import 'package:attendo/views/teacher_home.dart'; // Add this import
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';

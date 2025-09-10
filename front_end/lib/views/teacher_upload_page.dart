@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'dart:convert';
 import 'dart:io';
+import 'package:http_parser/http_parser.dart'; // Add this import
 
 class TeacherUploadPage extends StatefulWidget {
   const TeacherUploadPage({super.key});
@@ -31,7 +32,6 @@ class _TeacherUploadPageState extends State<TeacherUploadPage> {
 
   Future<void> _pickStudentFile() async {
     try {
-      // Use FilePicker to pick a single file with PDF extension
       FilePickerResult? result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['pdf'],
@@ -39,11 +39,17 @@ class _TeacherUploadPageState extends State<TeacherUploadPage> {
       );
 
       if (result != null) {
-        setState(() {
-          // Get the path from the selected platform file
-          _selectedStudentFilePath = result.files.single.path;
-          _studentUploadResult = null;
-        });
+        final platformFile = result.files.single;
+
+        // Use the mime type provided by the file picker
+        if (platformFile.path != null && platformFile.extension?.toLowerCase() == 'pdf') {
+          setState(() {
+            _selectedStudentFilePath = platformFile.path;
+            _studentUploadResult = null;
+          });
+        } else {
+          _showErrorSnackBar('Please select a valid PDF file.');
+        }
       }
     } catch (e) {
       _showErrorSnackBar('Error picking student file: $e');
@@ -52,7 +58,6 @@ class _TeacherUploadPageState extends State<TeacherUploadPage> {
 
   Future<void> _pickTimetableFile() async {
     try {
-      // Use FilePicker to pick a single file with PDF extension
       FilePickerResult? result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['pdf'],
@@ -60,11 +65,17 @@ class _TeacherUploadPageState extends State<TeacherUploadPage> {
       );
 
       if (result != null) {
-        setState(() {
-          // Get the path from the selected platform file
-          _selectedTimetableFilePath = result.files.single.path;
-          _timetableUploadResult = null;
-        });
+        final platformFile = result.files.single;
+
+        // Use the mime type provided by the file picker
+        if (platformFile.path != null && platformFile.extension?.toLowerCase() == 'pdf') {
+          setState(() {
+            _selectedTimetableFilePath = platformFile.path;
+            _timetableUploadResult = null;
+          });
+        } else {
+          _showErrorSnackBar('Please select a valid PDF file.');
+        }
       }
     } catch (e) {
       _showErrorSnackBar('Error picking timetable file: $e');
@@ -99,6 +110,7 @@ class _TeacherUploadPageState extends State<TeacherUploadPage> {
         request.files.add(await http.MultipartFile.fromPath(
           'studentListPdf',
           _selectedStudentFilePath!,
+          contentType: MediaType('application', 'pdf'), // Explicitly set content type
         ));
       } else {
         _showErrorSnackBar('File not found');
@@ -163,6 +175,7 @@ class _TeacherUploadPageState extends State<TeacherUploadPage> {
         request.files.add(await http.MultipartFile.fromPath(
           'timetablePdf',
           _selectedTimetableFilePath!,
+          contentType: MediaType('application', 'pdf'), // Explicitly set content type
         ));
       } else {
         _showErrorSnackBar('File not found');

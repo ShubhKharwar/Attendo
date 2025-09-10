@@ -6,6 +6,7 @@ import 'interests_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'teacher_attendance_page.dart'; // Import the new page
+import 'teacher_home.dart'; // Import the new TeacherHomeScreen
 
 class LoginView extends StatefulWidget {
   const LoginView({super.key});
@@ -88,7 +89,7 @@ class _LoginViewState extends State<LoginView> {
           }
         } else if (userType == 'admin') {
           // Logic for admins/teachers
-          _navigateToTeacherAttendance();
+          _navigateToTeacherHome(); // Changed from _navigateToTeacherAttendance()
         } else {
           // Handle cases where userType is missing or invalid
           throw Exception('Invalid user type received from server');
@@ -131,14 +132,19 @@ class _LoginViewState extends State<LoginView> {
     );
   }
 
-  // --- NEW NAVIGATION FUNCTION FOR ADMINS ---
   void _navigateToTeacherAttendance() {
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(builder: (_) => const TeacherAttendancePage()),
     );
   }
 
-  // ... (The rest of your build method and other widgets remain unchanged) ...
+  // --- NEW NAVIGATION FUNCTION FOR ADMINS ---
+  void _navigateToTeacherHome() {
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(builder: (_) => const TeacherHomeScreen()),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -316,4 +322,3 @@ class _LoginViewState extends State<LoginView> {
     );
   }
 }
-
