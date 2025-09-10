@@ -12,27 +12,39 @@ class Task {
   final TimeOfDay startTime;
   final TimeOfDay endTime;
   final bool isOfficial;
+  final String? taskType;    // 'class' or 'recommendation'
+  final String? reasoning;   // Why recommended
+  final String? urgencyLevel; // low, medium, high
+  final String? taskId;      // For recommendations
 
   Task({
     required this.title,
     required this.startTime,
     required this.endTime,
     this.isOfficial = false,
+    this.taskType,
+    this.reasoning,
+    this.urgencyLevel,
+    this.taskId,
   });
 
-  // --- ADDED: Factory constructor to parse from API response ---
   factory Task.fromApi(Map<String, dynamic> json) {
     TimeOfDay startTime = _parseTime(json['startTime'] ?? '00:00');
     TimeOfDay endTime = _calculateEndTime(startTime, json['duration'] ?? '0 minutes');
-
+    
     return Task(
       title: json['subject'] ?? 'Unknown Class',
       startTime: startTime,
       endTime: endTime,
-      isOfficial: true, // All tasks from the API are official
+      isOfficial: json['isOfficial'] ?? json['type'] == 'class',
+      taskType: json['type'] ?? 'class',
+      reasoning: json['reasoning'],
+      urgencyLevel: json['urgencyLevel'],
+      taskId: json['taskId'],
     );
   }
 }
+
 
 // --- ADDED: Helper functions to parse time from your backend's format ---
 TimeOfDay _parseTime(String time) {
