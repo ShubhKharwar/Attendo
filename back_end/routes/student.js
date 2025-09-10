@@ -11,6 +11,135 @@ require("dotenv").config();
 const JWT_SECRET = process.env.JWT_SECRET;
 const studentRouter = Router();
 
+// routes/student.js - Add these helper functions after imports
+
+// Helper functions for time calculations
+function timeToMinutes(timeStr) {
+  if (!timeStr) return 0;
+  const [hours, minutes] = timeStr.split(':').map(Number);
+  return hours * 60 + minutes;
+}
+
+function minutesToTime(minutes) {
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  return `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}`;
+}
+
+function dayNameFromISO(isoDate) {
+  const d = new Date(`${isoDate}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return null;
+  const names = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  return names[d.getDay()];
+}
+
+// Smart time slot assignment for recommendations
+function assignTimeSlots(existingClasses, recommendations, date) {
+  const workingHours = {
+    start: 9 * 60,  // 9:00 AM in minutes
+    end: 18 * 60    // 6:00 PM in minutes
+  };
+
+  // Convert existing classes to busy time slots
+  const busySlots = existingClasses.map(cls => ({
+    start: timeToMinutes(cls.StartTime),
+    end: timeToMinutes(cls.StartTime) + parseInt(cls.DurationOfClass?.replace(' minutes', '') || '60')
+  })).sort((a, b) => a.start - b.start);
+
+  // Find available time gaps
+  const availableSlots = [];
+  let currentTime = workingHours.start;
+
+  for (const busySlot of busySlots) {
+    // Add gap before this busy slot
+    if (currentTime < busySlot.start) {
+      const gapDuration = busySlot.start - currentTime;
+      if (gapDuration >= 10) { // Only consider gaps of 10+ minutes
+        availableSlots.push({
+          start: currentTime,
+          end: busySlot.start,
+          duration: gapDuration
+        });
+      }
+    }
+    currentTime = Math.max(currentTime, busySlot.end);
+  }
+
+  // Add final slot after last class
+  if (currentTime < workingHours.end) {
+    const finalDuration = workingHours.end - currentTime;
+    if (finalDuration >= 10) {
+      availableSlots.push({
+        start: currentTime,
+        end: workingHours.end,
+        duration: finalDuration
+      });
+    }
+  }
+
+  // Assign time slots to recommendations based on priority
+  const scheduledRecommendations = [];
+  let slotIndex = 0;
+
+  // Sort recommendations by urgency and rank
+  const sortedRecs = [...recommendations].sort((a, b) => {
+    const urgencyWeight = { high: 3, medium: 2, low: 1 };
+    return (urgencyWeight[b.urgency_level] || 2) - (urgencyWeight[a.urgency_level] || 2) || 
+           (a.rank || 1) - (b.rank || 1);
+  });
+
+  for (const rec of sortedRecs) {
+    const taskDuration = rec.estimated_time || 15;
+    
+    // Find a suitable time slot
+    while (slotIndex < availableSlots.length) {
+      const slot = availableSlots[slotIndex];
+      
+      if (slot.duration >= taskDuration) {
+        const startTime = minutesToTime(slot.start);
+        const endTime = minutesToTime(slot.start + taskDuration);
+        
+        scheduledRecommendations.push({
+          taskId: rec.task_id,
+          title: rec.title,
+          description: rec.description || "",
+          estimatedTime: taskDuration,
+          taskType: rec.task_type,
+          courseTags: rec.course_tags || [],
+          topicTags: rec.topic_tags || [],
+          reasoning: rec.reasoning || "",
+          urgencyLevel: rec.urgency_level || "medium",
+          suggestedStartTime: startTime,
+          suggestedEndTime: endTime,
+          isScheduled: false,
+          rank: rec.rank || 1,
+          difficultyLevel: rec.difficulty_level || "medium"
+        });
+
+        // Update the slot
+        slot.start += taskDuration + 5; // Add 5min buffer
+        slot.duration -= (taskDuration + 5);
+        
+        if (slot.duration < 10) { // Less than 10 minutes left
+          slotIndex++;
+        }
+        break;
+      } else {
+        slotIndex++;
+      }
+    }
+
+    // Stop if we've filled all available slots
+    if (slotIndex >= availableSlots.length) {
+      break;
+    }
+  }
+
+  return scheduledRecommendations;
+}
+
+
+
 // --- Zod Schema for Input Validation ---
 // The signup schema has been removed as it's no longer needed.
 const signinSchema = z.object({
@@ -167,7 +296,7 @@ studentRouter.post("/markAttendance", auth, async (req, res) => {
       // Subject not found - create new entry
       user.attendanceLog.push({
         subject: subject,
-        presentDays: 1,
+        presentDays: presentDays,
         totalDays: 0,
       });
     }
@@ -214,63 +343,91 @@ function timeToMinutes(t) {
 
 // GET /student/schedule?date=yyyy-MM-dd
 // Requires Authorization: Bearer <token>
-studentRouter.get("/schedule", auth, async (req, res) => {
+// UPDATE your existing GET /schedule route in routes/student.js
+studentRouter.get('/schedule', auth, async (req, res) => {
   try {
     const { date } = req.query;
     if (!date) {
-      return res
-        .status(400)
-        .json({ message: "Missing date query param (yyyy-MM-dd)." });
+      return res.status(400).json({ message: 'Missing date query param (yyyy-MM-dd).' });
     }
 
-    // req.user is set by auth middleware after JWT verification
     const { rollNo } = req.user || {};
     if (!rollNo) {
-      return res
-        .status(401)
-        .json({ message: "Unauthorized: missing token payload." });
+      return res.status(401).json({ message: 'Unauthorized: missing token payload.' });
     }
 
     const day = dayNameFromISO(date);
     if (!day) {
-      return res
-        .status(400)
-        .json({ message: "Invalid date format. Use yyyy-MM-dd." });
+      return res.status(400).json({ message: 'Invalid date format. Use yyyy-MM-dd.' });
     }
 
-    // Fetch only needed fields
+    // Fetch student data
     const student = await User.findOne(
-      { rollNo, userType: "student" },
-      { name: 1, rollNo: 1, class: 1, SubjectsInfo: 1, _id: 0 }
+      { rollNo, userType: 'student' },
+      { name: 1, rollNo: 1, class: 1, SubjectsInfo: 1, _id: 1 }
     ).lean();
 
     if (!student) {
-      return res.status(404).json({ message: "Student not found." });
+      return res.status(404).json({ message: 'Student not found.' });
     }
 
-    const todays = (student.SubjectsInfo || [])
-      .filter((s) => String(s.Day).toLowerCase() === day.toLowerCase())
+    // Get regular classes for the day
+    const regularClasses = (student.SubjectsInfo || [])
+      .filter(s => String(s.Day).toLowerCase() === day.toLowerCase())
       .sort((a, b) => timeToMinutes(a.StartTime) - timeToMinutes(b.StartTime))
-      .map((s) => ({
+      .map(s => ({
         subject: s.SubjectCode,
-        class: student.class, // students’ entries don’t carry Class; use profile class
+        class: student.class,
         startTime: s.StartTime,
         duration: s.DurationOfClass,
+        type: 'class',
+        isOfficial: true
       }));
 
+    let allTasks = [...regularClasses];
+
+    // Get recommended tasks for the date
+    try {
+      const recommendedTasks = await DailyRecommendedTask.findOne({
+        student: student._id,
+        date: date
+      }).lean();
+
+      if (recommendedTasks && recommendedTasks.tasks.length > 0) {
+        const recommendationTasks = recommendedTasks.tasks
+          .filter(task => task.suggestedStartTime) // Only include tasks with assigned time slots
+          .map(task => ({
+            subject: task.title,
+            class: 'Recommended',
+            startTime: task.suggestedStartTime,
+            duration: `${task.estimatedTime} minutes`,
+            type: 'recommendation',
+            isOfficial: false,
+            reasoning: task.reasoning,
+            urgencyLevel: task.urgencyLevel,
+            taskType: task.taskType,
+            taskId: task.taskId
+          }));
+
+        allTasks = [...regularClasses, ...recommendationTasks];
+      }
+    } catch (recError) {
+      console.error('Error fetching recommendations for schedule:', recError);
+    }
+
+    // Sort all tasks by start time
+    allTasks.sort((a, b) => timeToMinutes(a.startTime) - timeToMinutes(b.startTime));
+
     return res.status(200).json({
-      student: {
-        name: student.name,
-        rollNo: student.rollNo,
-        class: student.class,
-      },
+      student: { name: student.name, rollNo: student.rollNo, class: student.class },
       date,
       day,
-      classes: todays,
+      classes: allTasks
     });
+
   } catch (err) {
-    console.error("GET /student/schedule error:", err);
-    return res.status(500).json({ message: "Internal server error." });
+    console.error('GET /student/schedule error:', err);
+    return res.status(500).json({ message: 'Internal server error.' });
   }
 });
 
@@ -323,68 +480,87 @@ studentRouter.get("/courses", auth, async (req, res) => {
 
 
 // Add this NEW ROUTE after your existing routes:
+// ADD THIS NEW ROUTE in routes/student.js
 studentRouter.get('/recommendations', auth, async (req, res) => {
   try {
-    const { rollNo } = req.user;
-    
-    // Find the student
+    const rollNo = req.user.rollNo;
+    const date = req.query.date || new Date().toISOString().slice(0, 10);
+
+    // Find student
     const student = await User.findOne({ rollNo, userType: 'student' });
     if (!student) {
-      return res.status(404).json({ message: 'Student not found.' });
+      return res.status(404).json({ message: 'Student not found' });
     }
 
-    // Check if we already have recommendations for today
-    const today = new Date().toISOString().slice(0, 10);
-    let existingRecs = await DailyRecommendedTask.findOne({ 
+    // Check if recommendations already exist for this date
+    const existingRecs = await DailyRecommendedTask.findOne({ 
       student: student._id, 
-      date: today 
+      date 
     });
 
     if (existingRecs) {
-      return res.json({ tasks: existingRecs.tasks, cached: true });
-    }
-
-    // Prepare request for Python FastAPI
-    const ragRequest = {
-      user_id: rollNo, // Use rollNo as identifier
-      break_duration_minutes: parseInt(req.query.duration) || 15,
-      current_courses: [...new Set(student.SubjectsInfo.map(s => s.SubjectCode))],
-      interests: student.interests || [],
-      recent_attendance: {}
-    };
-
-    // Call Python FastAPI service
-    const response = await axios.post('http://localhost:8000/recommendations/', ragRequest);
-    const recommendations = response.data;
-
-    if (recommendations && recommendations.length > 0) {
-      // Save to MongoDB
-      const dailyRec = new DailyRecommendedTask({
-        student: student._id,
-        date: today,
-        tasks: recommendations.map(rec => ({
-          taskId: rec.task_id,
-          title: rec.title,
-          estimatedTime: rec.estimated_time,
-          taskType: rec.task_type,
-          courseTags: rec.course_tags || [],
-          topicTags: rec.topic_tags || [],
-          reasoning: rec.reasoning || "",
-          urgencyLevel: rec.urgency_level || "medium"
-        }))
+      return res.json({ 
+        tasks: existingRecs.tasks, 
+        cached: true,
+        generatedAt: existingRecs.generatedAt
       });
-      
-      await dailyRec.save();
-      
-      return res.json({ tasks: dailyRec.tasks, cached: false });
     }
 
-    return res.json({ tasks: [], cached: false });
+    // Generate new recommendations for today only
+    if (date === new Date().toISOString().slice(0, 10)) {
+      try {
+        // Get student's schedule for the day to find available time slots
+        const day = dayNameFromISO(date);
+        const todaysClasses = (student.SubjectsInfo || [])
+          .filter(s => String(s.Day).toLowerCase() === day?.toLowerCase());
+
+        // Prepare request for Python FastAPI
+        const ragRequest = {
+          user_id: rollNo,
+          break_duration_minutes: parseInt(req.query.duration) || 15,
+          current_courses: [...new Set(student.SubjectsInfo.map(s => s.SubjectCode))],
+          interests: student.interests || [],
+          recent_attendance: {} // You can enhance this based on attendanceLog
+        };
+
+        // Call Python FastAPI service
+        const response = await axios.post('http://localhost:8000/recommendations/', ragRequest, {
+          timeout: 10000
+        });
+        
+        const recommendations = response.data;
+
+        if (recommendations && recommendations.length > 0) {
+          // Assign time slots based on existing schedule
+          const scheduledTasks = assignTimeSlots(todaysClasses, recommendations, date);
+
+          // Save to MongoDB
+          const dailyRec = new DailyRecommendedTask({
+            student: student._id,
+            date,
+            tasks: scheduledTasks
+          });
+          
+          await dailyRec.save();
+          return res.json({ 
+            tasks: dailyRec.tasks, 
+            cached: false,
+            generatedAt: dailyRec.generatedAt
+          });
+        }
+      } catch (apiError) {
+        console.error('Error calling RAG API:', apiError.message);
+        // Fall through to return empty array
+      }
+    }
+
+    res.json({ tasks: [], cached: false });
 
   } catch (error) {
     console.error('Error fetching recommendations:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
+
 
 module.exports = studentRouter;
