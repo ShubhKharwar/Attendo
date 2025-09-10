@@ -3,12 +3,24 @@
 const { Router } = require('express');
 const multer = require('multer');
 const crypto = require('crypto');
-const { User, TemporaryPassword } = require('../db');
+const { User, TemporaryPassword , Syllabus } = require('../db');
 const { extractInfoFromPdf, extractTimetableFromPdf } = require('../utils/gemini');
 const { auth } = require('../auth')
 const jwt = require('jsonwebtoken');
 
 const adminRouter = Router();
+
+const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3');
+
+// S3 client for Backblaze B2 (S3-compatible)
+const s3 = new S3Client({
+  region: process.env.B2_REGION,
+  endpoint: process.env.B2_ENDPOINT,            // e.g. https://s3.us-west-004.backblazeb2.com
+  credentials: {
+    accessKeyId: process.env.B2_KEY_ID,
+    secretAccessKey: process.env.B2_APPLICATION_KEY
+  }
+});
 
 // helper: "2025-09-10" -> "Wednesday"
 function dayNameFromISO(isoDate) {
@@ -369,6 +381,86 @@ adminRouter.get('/courses', auth, async (req, res) => {
         res.status(500).json({ message: 'Server error. Please try again later.' });
     }
 });
+
+// POST /admin/upload-syllabus
+// Form fields: subjectCode, class ; File field: syllabusPdf
+adminRouter.post('/upload-syllabus', auth , upload.single('syllabusPdf'), async (req, res) => {
+  try {
+    if (!req.file || req.file.mimetype !== 'application/pdf') {
+      return res.status(400).json({ message: 'PDF file is required.' });
+    }
+    const { subjectCode, class: className } = req.body;
+    if (!subjectCode || !className) {
+      return res.status(400).json({ message: 'subjectCode and class are required.' });
+    }
+
+    // teacher identity from JWT (auth middleware)
+    const teacherRollNo = req.user.rollNo;
+    if (!teacherRollNo) return res.status(401).json({ message: 'Unauthorized.' });
+
+    // Build object key and upload
+    const key = `syllabi/${teacherRollNo}/${subjectCode}_${Date.now()}.pdf`;
+    await s3.send(new PutObjectCommand({
+      Bucket: process.env.B2_BUCKET,
+      Key: key,
+      Body: req.file.buffer,
+      ContentType: 'application/pdf'
+    }));
+
+    // Public S3-style URL for a public bucket:
+    // https://<bucket>.s3.<region>.backblazeb2.com/<key>
+    const url = `https://${process.env.B2_BUCKET}.${new URL(process.env.B2_ENDPOINT).host}/${key}`;
+
+    // Save in DB
+    const doc = await Syllabus.create({
+      subjectCode,
+      class: className,
+      teacherRollNo,
+      key,
+      url,
+      sizeBytes: req.file.size,
+      contentType: req.file.mimetype
+    });
+
+    return res.status(201).json({
+      message: 'Syllabus uploaded.',
+      syllabus: {
+        id: doc._id,
+        subjectCode: doc.subjectCode,
+        class: doc.class,
+        url: doc.url
+      }
+    });
+  } catch (err) {
+    console.error('upload-syllabus error:', err);
+    return res.status(500).json({ message: 'Internal server error.' });
+  }
+});
+
+// GET /admin/syllabus?subjectCode=CS104&class=CSE-6
+adminRouter.get('/syllabus', auth, async (req, res) => {
+  try {
+    const teacherRollNo = req.user?.rollNo;
+    if (!teacherRollNo) return res.status(401).json({ message: 'Unauthorized.' });
+
+    const { subjectCode, class: className } = req.query;
+    const q = { teacherRollNo };
+    if (subjectCode) q.subjectCode = subjectCode;
+    if (className)   q.class = className;
+
+    const items = await Syllabus.find(q).sort({ createdAt: -1 }).lean();
+    return res.status(200).json(items.map(i => ({
+      id: i._id,
+      subjectCode: i.subjectCode,
+      class: i.class,
+      url: i.url
+    })));
+  } catch (err) {
+    console.error('get syllabus error:', err);
+    return res.status(500).json({ message: 'Internal server error.' });
+  }
+});
+
 
 
 

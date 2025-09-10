@@ -142,6 +142,20 @@ const DailyRecommendedTask = mongoose.model(
   dailyRecommendedTaskSchema
 );
 
+// below TemporaryPassword model
+const syllabusSchema = new mongoose.Schema({
+  subjectCode: { type: String, required: true },
+  class:       { type: String, required: true },
+  teacherRollNo:{ type: String, required: true },
+  key:         { type: String, required: true },  // object key in B2
+  url:         { type: String, required: true },  // public or signed URL
+  sizeBytes:   { type: Number, default: 0 },
+  contentType: { type: String, default: 'application/pdf' }
+}, { timestamps: true });
+
+const Syllabus = mongoose.model('Syllabus', syllabusSchema);
+
+
 // --- Database Connection ---
 const connectDB = async () => {
   try {
@@ -153,5 +167,5 @@ const connectDB = async () => {
   }
 };
 
-// Export all models and the connectDB function
-module.exports = { User, TemporaryPassword, connectDB };
+// export it
+module.exports = { User, TemporaryPassword, Syllabus, connectDB };
