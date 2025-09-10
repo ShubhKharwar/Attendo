@@ -184,5 +184,74 @@ studentRouter.post('/markAttendance', auth, async (req, res) => {
 });
 
 
+// studentRouter.js
+
+// Helpers (place near the top of this file)
+function dayNameFromISO(isoDate) {
+  const d = new Date(`${isoDate}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return null;
+  const names = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  return names[d.getDay()];
+}
+
+function timeToMinutes(t) {
+  const [h, m] = String(t).split(':').map(Number);
+  return (h ?? 0) * 60 + (m ?? 0);
+}
+
+// GET /student/schedule?date=yyyy-MM-dd
+// Requires Authorization: Bearer <token>
+studentRouter.get('/schedule', auth, async (req, res) => {
+  try {
+    const { date } = req.query;
+    if (!date) {
+      return res.status(400).json({ message: 'Missing date query param (yyyy-MM-dd).' });
+    }
+
+    // req.user is set by auth middleware after JWT verification
+    const { rollNo } = req.user || {};
+    if (!rollNo) {
+      return res.status(401).json({ message: 'Unauthorized: missing token payload.' });
+    }
+
+    const day = dayNameFromISO(date);
+    if (!day) {
+      return res.status(400).json({ message: 'Invalid date format. Use yyyy-MM-dd.' });
+    }
+
+    // Fetch only needed fields
+    const student = await User.findOne(
+      { rollNo, userType: 'student' },
+      { name: 1, rollNo: 1, class: 1, SubjectsInfo: 1, _id: 0 }
+    ).lean();
+
+    if (!student) {
+      return res.status(404).json({ message: 'Student not found.' });
+    }
+
+    const todays = (student.SubjectsInfo || [])
+      .filter(s => String(s.Day).toLowerCase() === day.toLowerCase())
+      .sort((a, b) => timeToMinutes(a.StartTime) - timeToMinutes(b.StartTime))
+      .map(s => ({
+        subject: s.SubjectCode,
+        class: student.class,       // students’ entries don’t carry Class; use profile class
+        startTime: s.StartTime,
+        duration: s.DurationOfClass
+      }));
+
+    return res.status(200).json({
+      student: { name: student.name, rollNo: student.rollNo, class: student.class },
+      date,
+      day,
+      classes: todays
+    });
+  } catch (err) {
+    console.error('GET /student/schedule error:', err);
+    return res.status(500).json({ message: 'Internal server error.' });
+  }
+});
+
+
+
 module.exports = studentRouter;
 
