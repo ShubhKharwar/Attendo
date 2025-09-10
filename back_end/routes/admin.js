@@ -181,17 +181,25 @@ adminRouter.post('/upload-timetable', upload.single('timetablePdf'), async (req,
 
                 const durationInMinutes = (endTime.getTime() - startTime.getTime()) / 60000;
 
-                const subjectInfo = {
+                const subjectInfoT = {
                     SubjectCode: entry.subjectCode,
                     Day: entry.day,
                     StartTime: entry.startTime,
-                    DurationOfClass: `${durationInMinutes} minutes`
+                    DurationOfClass: `${durationInMinutes} minutes`,
+                    Class : entry.class
+                };
+
+                const subjectInfoS = {
+                    SubjectCode: entry.subjectCode,
+                    Day: entry.day,
+                    StartTime: entry.startTime,
+                    DurationOfClass: `${durationInMinutes} minutes`,
                 };
 
                 // 1. Update all students in the specified class
                 const studentUpdateResult = await User.updateMany(
                     { class: entry.class, userType: 'student' },
-                    { $push: { SubjectsInfo: subjectInfo } }
+                    { $push: { SubjectsInfo: subjectInfoS } }
                 );
                 
                 if (studentUpdateResult.modifiedCount > 0) {
@@ -202,7 +210,7 @@ adminRouter.post('/upload-timetable', upload.single('timetablePdf'), async (req,
                 // 2. Update the teacher (admin user) identified by email
                 const teacherUpdateResult = await User.updateOne(
                     { email: entry.teacherEmail, userType: 'admin' },
-                    { $push: { SubjectsInfo: subjectInfo } }
+                    { $push: { SubjectsInfo: subjectInfoT } }
                 );
 
                 if (teacherUpdateResult.modifiedCount > 0) {
