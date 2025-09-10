@@ -5,8 +5,23 @@ const multer = require('multer');
 const crypto = require('crypto');
 const { User, TemporaryPassword } = require('../db');
 const { extractInfoFromPdf, extractTimetableFromPdf } = require('../utils/gemini');
+const jwt = require('jsonwebtoken');
 
 const adminRouter = Router();
+
+// helper: "2025-09-10" -> "Wednesday"
+function dayNameFromISO(isoDate) {
+  const d = new Date(`${isoDate}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return null;
+  const names = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  return names[d.getDay()];
+}
+
+// helper: "09:00" -> 540
+function timeToMinutes(t) {
+  const [h, m] = String(t).split(':').map(Number);
+  return (h ?? 0) * 60 + (m ?? 0);
+}
 
 // Multer and generatePassword functions remain the same
 const storage = multer.memoryStorage();
@@ -247,5 +262,67 @@ adminRouter.post('/upload-timetable', upload.single('timetablePdf'), async (req,
         }
     }
 });
+
+
+
+
+adminRouter.get('/schedule',async (req, res) => {
+  try {
+    const { date } = req.query;
+    if (!date) {
+      return res.status(400).json({ message: 'Missing date query param (yyyy-MM-dd).' });
+    }
+
+    const authHeader = req.headers.authorization || '';
+    const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+    if (!token) {
+      return res.status(401).json({ message: 'Missing Bearer token.' });
+    }
+
+    // verify token and read payload (expects rollNo and name)
+    let payload;
+    try {
+      payload = jwt.verify(token, process.env.JWT_SECRET);
+    } catch (e) {
+      return res.status(401).json({ message: 'Invalid or expired token.' });
+    }
+
+    const day = dayNameFromISO(date);
+    if (!day) {
+      return res.status(400).json({ message: 'Invalid date format. Use yyyy-MM-dd.' });
+    }
+
+    // find teacher by rollNo from token
+    const teacher = await User.findOne(
+      { rollNo: payload.rollNo, userType: 'admin' },
+      { name: 1, rollNo: 1, SubjectsInfo: 1, _id: 0 }
+    ).lean();
+
+    if (!teacher) {
+      return res.status(404).json({ message: 'Teacher not found.' });
+    }
+
+    const todays = (teacher.SubjectsInfo || [])
+      .filter(s => String(s.Day).toLowerCase() === day.toLowerCase())
+      .sort((a, b) => timeToMinutes(a.StartTime) - timeToMinutes(b.StartTime))
+      .map(s => ({
+        subject: s.SubjectCode,
+        class: s.Class,            // present for teacher entries
+        startTime: s.StartTime,
+        duration: s.DurationOfClass
+      }));
+
+    return res.status(200).json({
+      teacher: { name: teacher.name, rollNo: teacher.rollNo },
+      date,
+      day,
+      classes: todays
+    });
+  } catch (err) {
+    console.error('GET /admin/schedule error:', err);
+    return res.status(500).json({ message: 'Internal server error.' });
+  }
+});
+
 
 module.exports = adminRouter;
