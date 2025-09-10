@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
-import 'package:intl/intl.dart'; // Import for date formatting
+import 'dart:convert'; // For decoding JSON
+import 'package:http/http.dart' as http; // For API calls
+import 'package:flutter_secure_storage/flutter_secure_storage.dart'; // For handling auth token
+import 'package:intl/intl.dart';
 
-// Data model for a teacher's class
+// Data model for a teacher's class - REMAINS THE SAME
 class TeacherClass {
   final String className;
-  final String venue;
+  final String venue; // In our case, this will be the student's class (e.g., 'B.Tech CSE')
   final TimeOfDay startTime;
   final TimeOfDay endTime;
 
@@ -15,9 +18,38 @@ class TeacherClass {
     required this.startTime,
     required this.endTime,
   });
+
+  // --- ADDED: Factory constructor to parse from API response ---
+  factory TeacherClass.fromJson(Map<String, dynamic> json) {
+    TimeOfDay startTime = _parseTime(json['startTime'] ?? '00:00');
+    TimeOfDay endTime = _calculateEndTime(startTime, json['duration'] ?? '0 minutes');
+
+    return TeacherClass(
+      className: json['subject'] ?? 'Unknown Subject',
+      venue: json['class'] ?? 'Unknown Class', // The student class from the backend
+      startTime: startTime,
+      endTime: endTime,
+    );
+  }
 }
 
-// Enum to represent the status of a class
+// Helper function to parse time from "HH:mm" string
+TimeOfDay _parseTime(String time) {
+  final parts = time.split(':');
+  if (parts.length != 2) return const TimeOfDay(hour: 0, minute: 0);
+  return TimeOfDay(hour: int.parse(parts[0]), minute: int.parse(parts[1]));
+}
+
+// Helper function to calculate end time from start time and duration string
+TimeOfDay _calculateEndTime(TimeOfDay startTime, String duration) {
+  final minutesToAdd = int.tryParse(duration.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
+  final now = DateTime.now();
+  final startDateTime = DateTime(now.year, now.month, now.day, startTime.hour, startTime.minute);
+  final endDateTime = startDateTime.add(Duration(minutes: minutesToAdd));
+  return TimeOfDay.fromDateTime(endDateTime);
+}
+
+// Enum to represent the status of a class - REMAINS THE SAME
 enum ClassStatus { past, current, future }
 
 class TeacherSchedulePage extends StatefulWidget {
@@ -28,77 +60,25 @@ class TeacherSchedulePage extends StatefulWidget {
 }
 
 class _TeacherSchedulePageState extends State<TeacherSchedulePage> {
-  // --- STATE MANAGEMENT ---
+  // --- MODIFIED: State Management ---
   DateTime _selectedDate = DateTime.now();
   List<TeacherClass> _classesForSelectedDate = [];
   late Timer _timer;
 
-  // --- DATA SIMULATION FOR MULTIPLE DAYS ---
-  // In a real app, this data would come from your database.
-  final Map<DateTime, List<TeacherClass>> _allSchedules = {
-    // Today's Schedule
-    DateTime.now(): [
-      TeacherClass(
-        className: 'Database Management Systems',
-        venue: 'Room 301, CS Block',
-        startTime: const TimeOfDay(hour: 9, minute: 0),
-        endTime: const TimeOfDay(hour: 10, minute: 30),
-      ),
-      TeacherClass(
-        className: 'Data Structures & Algorithms',
-        venue: 'Lab 2, IT Block',
-        startTime: const TimeOfDay(hour: 11, minute: 0),
-        endTime: const TimeOfDay(hour: 12, minute: 30),
-      ),
-      TeacherClass(
-        className: 'Software Engineering',
-        venue: 'Room 205, Main Block',
-        startTime: const TimeOfDay(hour: 14, minute: 0),
-        endTime: const TimeOfDay(hour: 15, minute: 30),
-      ),
-      TeacherClass(
-        className: 'Computer Networks',
-        venue: 'Room 401, CS Block',
-        startTime: const TimeOfDay(hour: 16, minute: 0),
-        endTime: const TimeOfDay(hour: 17, minute: 30),
-      ),
-    ],
-    // Yesterday's Schedule
-    DateTime.now().subtract(const Duration(days: 1)): [
-      TeacherClass(
-        className: 'Operating Systems',
-        venue: 'Room 202, CS Block',
-        startTime: const TimeOfDay(hour: 10, minute: 0),
-        endTime: const TimeOfDay(hour: 11, minute: 30),
-      ),
-      TeacherClass(
-        className: 'Computer Graphics',
-        venue: 'Lab 3, IT Block',
-        startTime: const TimeOfDay(hour: 14, minute: 0),
-        endTime: const TimeOfDay(hour: 16, minute: 0),
-      ),
-    ],
-    // Tomorrow's Schedule
-    DateTime.now().add(const Duration(days: 1)): [
-      TeacherClass(
-        className: 'Machine Learning',
-        venue: 'Room 405, CS Block',
-        startTime: const TimeOfDay(hour: 9, minute: 0),
-        endTime: const TimeOfDay(hour: 11, minute: 0),
-      ),
-      TeacherClass(
-        className: 'Artificial Intelligence',
-        venue: 'Room 303, CS Block',
-        startTime: const TimeOfDay(hour: 15, minute: 0),
-        endTime: const TimeOfDay(hour: 16, minute: 30),
-      ),
-    ]
-  };
+  // --- ADDED: State for API calls ---
+  bool _isLoading = true;
+  String? _errorMessage;
+  final _storage = const FlutterSecureStorage();
+
+  // --- REMOVED: The hardcoded _allSchedules map is no longer needed ---
 
   @override
   void initState() {
     super.initState();
-    _loadClassesForSelectedDate();
+    // Fetch data for the initial date (today)
+    _fetchScheduleForDate(_selectedDate);
+
+    // Timer to update the UI for 'current' class status
     _timer = Timer.periodic(const Duration(minutes: 1), (timer) {
       if (mounted) {
         setState(() {});
@@ -112,57 +92,63 @@ class _TeacherSchedulePageState extends State<TeacherSchedulePage> {
     super.dispose();
   }
 
-  // --- FUNCTION TO LOAD CLASSES FOR THE SELECTED DATE ---
-  void _loadClassesForSelectedDate() {
-    DateTime normalizedDate = DateUtils.dateOnly(_selectedDate);
-
-    // --- DATABASE LOGIC (COMMENTED OUT) ---
-    /*
-    Future<void> _fetchScheduleForDate(DateTime date) async {
-      print("Fetching teacher schedule for ${DateFormat.yMd().format(date)}...");
-      try {
-        final token = await _storage.read(key: 'auth_token');
-        if (token == null) return;
-
-        // Example endpoint: /api/v1/teacher/schedule?date=2025-09-10
-        final url = Uri.parse('http://192.168.0.104/api/v1/teacher/schedule?date=${DateFormat('yyyy-MM-dd').format(date)}');
-        final response = await http.get(url, headers: {'Authorization': 'Bearer $token'});
-
-        if (response.statusCode == 200 && mounted) {
-          // Parse the response and update the state
-          // ...
-          setState(() {
-            // _classesForSelectedDate = parsedClasses;
-          });
-        }
-      } catch (e) {
-        print("Error fetching teacher schedule for date: $e");
-      }
-    }
-    // Instead of the map lookup below, you would call:
-    // await _fetchScheduleForDate(_selectedDate);
-    */
-
-    // --- Find and assign classes ---
-    DateTime? matchingKey;
-    for (var key in _allSchedules.keys) {
-      if (DateUtils.isSameDay(key, normalizedDate)) {
-        matchingKey = key;
-        break;
-      }
-    }
-
+  // --- REPLACED: This function now fetches data from your backend ---
+  Future<void> _fetchScheduleForDate(DateTime date) async {
     setState(() {
-      if (matchingKey != null) {
-        _classesForSelectedDate = _allSchedules[matchingKey]!;
-      } else {
-        // If no schedule is found for the selected date, show an empty list.
-        _classesForSelectedDate = [];
-      }
+      _isLoading = true;
+      _errorMessage = null;
     });
+
+    try {
+      // 1. Get the stored authentication token
+      final token = await _storage.read(key: 'auth_token');
+      if (token == null) {
+        throw Exception('Authentication token not found. Please log in again.');
+      }
+
+      // 2. Format the date and construct the URL
+      // IMPORTANT: Replace 'YOUR_SERVER_IP:PORT' with your actual server address
+      final String formattedDate = DateFormat('yyyy-MM-dd').format(date);
+      final url = Uri.parse('http://192.168.0.104:3000/api/v1/admin/schedule?date=$formattedDate');
+
+      // 3. Make the authenticated GET request
+      final response = await http.get(
+        url,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+      );
+
+      if (!mounted) return;
+
+      // 4. Handle the response
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        final List<dynamic> classesJson = data['classes'] ?? [];
+
+        setState(() {
+          _classesForSelectedDate = classesJson
+              .map((jsonItem) => TeacherClass.fromJson(jsonItem))
+              .toList();
+          _isLoading = false;
+        });
+      } else {
+        // Handle backend errors (e.g., 401, 404, 500)
+        final errorData = json.decode(response.body);
+        throw Exception(errorData['message'] ?? 'Failed to load schedule.');
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _errorMessage = e.toString();
+        _isLoading = false;
+        _classesForSelectedDate = []; // Clear data on error
+      });
+    }
   }
 
-  // --- FUNCTION TO SHOW THE CALENDAR ---
+  // --- MODIFIED: This function now triggers the API call ---
   Future<void> _showCalendar() async {
     final DateTime? picked = await showDatePicker(
       context: context,
@@ -175,11 +161,12 @@ class _TeacherSchedulePageState extends State<TeacherSchedulePage> {
       setState(() {
         _selectedDate = picked;
       });
-      _loadClassesForSelectedDate();
+      // Fetch data for the newly selected date
+      _fetchScheduleForDate(_selectedDate);
     }
   }
 
-  // --- LOGIC TO DETERMINE CLASS STATUS BASED ON SELECTED DATE ---
+  // --- LOGIC TO DETERMINE CLASS STATUS - REMAINS THE SAME ---
   ClassStatus _getClassStatus(TeacherClass teacherClass) {
     final today = DateUtils.dateOnly(DateTime.now());
     final selectedDay = DateUtils.dateOnly(_selectedDate);
@@ -209,13 +196,13 @@ class _TeacherSchedulePageState extends State<TeacherSchedulePage> {
 
   @override
   Widget build(BuildContext context) {
-    // --- DYNAMIC APP BAR TITLE ---
     final bool isToday = DateUtils.isSameDay(_selectedDate, DateTime.now());
     final String title = isToday ? "Today's Classes" : DateFormat.yMMMd().format(_selectedDate);
 
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
+        // ... (AppBar code remains the same)
         backgroundColor: Colors.black,
         elevation: 0,
         leading: IconButton(
@@ -230,7 +217,6 @@ class _TeacherSchedulePageState extends State<TeacherSchedulePage> {
             fontSize: 24,
           ),
         ),
-        // --- CALENDAR BUTTON ---
         actions: [
           IconButton(
             icon: const Icon(Icons.calendar_today, color: Colors.white),
@@ -238,141 +224,169 @@ class _TeacherSchedulePageState extends State<TeacherSchedulePage> {
           ),
         ],
       ),
-      body: _classesForSelectedDate.isEmpty
-          ? Center(
+      // --- MODIFIED: Body now handles loading and error states ---
+      body: _buildBody(),
+    );
+  }
+
+  // --- ADDED: Helper widget to build the body content ---
+  Widget _buildBody() {
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator(color: Colors.white));
+    }
+
+    if (_errorMessage != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24.0),
+          child: Text(
+            'Error: $_errorMessage',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: Colors.red[300], fontSize: 16),
+          ),
+        ),
+      );
+    }
+
+    if (_classesForSelectedDate.isEmpty) {
+      return Center(
         child: Text(
           'No classes scheduled for this day.',
           style: TextStyle(color: Colors.grey[600], fontSize: 16),
         ),
-      )
-          : ListView.builder(
-        padding: const EdgeInsets.fromLTRB(24.0, 24.0, 24.0, 40.0),
-        itemCount: _classesForSelectedDate.length,
-        itemBuilder: (context, index) {
-          final teacherClass = _classesForSelectedDate[index];
-          final status = _getClassStatus(teacherClass);
+      );
+    }
 
-          final isLast = index == _classesForSelectedDate.length - 1;
+    // Your existing ListView.builder for displaying the schedule
+    return ListView.builder(
+      padding: const EdgeInsets.fromLTRB(24.0, 24.0, 24.0, 40.0),
+      itemCount: _classesForSelectedDate.length,
+      itemBuilder: (context, index) {
+        // ... (The rest of your ListView.builder and item rendering code remains exactly the same)
+        final teacherClass = _classesForSelectedDate[index];
+        final status = _getClassStatus(teacherClass);
 
-          Color backgroundColor;
-          Color textColor;
-          Color timelineColor;
-          TextDecoration textDecoration = TextDecoration.none;
-          FontWeight fontWeight;
+        final isLast = index == _classesForSelectedDate.length - 1;
 
-          switch (status) {
-            case ClassStatus.past:
-              backgroundColor = Colors.grey[900]!;
-              textColor = Colors.grey[600]!;
-              timelineColor = Colors.grey[600]!;
-              textDecoration = TextDecoration.lineThrough;
-              fontWeight = FontWeight.normal;
-              break;
-            case ClassStatus.current:
-              backgroundColor = const Color(0xFF4CAF50);
-              textColor = Colors.black;
-              timelineColor = Colors.white;
-              fontWeight = FontWeight.bold;
-              break;
-            case ClassStatus.future:
-              backgroundColor = Colors.white;
-              textColor = Colors.black;
-              timelineColor = Colors.white;
-              fontWeight = FontWeight.normal;
-              break;
-          }
+        Color backgroundColor;
+        Color textColor;
+        Color timelineColor;
+        TextDecoration textDecoration = TextDecoration.none;
+        FontWeight fontWeight;
 
-          return IntrinsicHeight(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                SizedBox(
-                  width: 20,
-                  child: Column(
-                    children: [
-                      Expanded(
-                        child: Container(
-                          width: 2,
-                          color: index == 0 ? Colors.transparent : timelineColor,
-                        ),
+        switch (status) {
+          case ClassStatus.past:
+            backgroundColor = Colors.grey[900]!;
+            textColor = Colors.grey[600]!;
+            timelineColor = Colors.grey[600]!;
+            textDecoration = TextDecoration.lineThrough;
+            fontWeight = FontWeight.normal;
+            break;
+          case ClassStatus.current:
+            backgroundColor = const Color(0xFF4CAF50);
+            textColor = Colors.black;
+            timelineColor = Colors.white;
+            fontWeight = FontWeight.bold;
+            break;
+          case ClassStatus.future:
+            backgroundColor = Colors.white;
+            textColor = Colors.black;
+            timelineColor = Colors.white;
+            fontWeight = FontWeight.normal;
+            break;
+        }
+
+        return IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              SizedBox(
+                width: 20,
+                child: Column(
+                  children: [
+                    Expanded(
+                      child: Container(
+                        width: 2,
+                        color: index == 0 ? Colors.transparent : timelineColor,
                       ),
-                      Container(
-                        width: 20,
-                        height: 20,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: status == ClassStatus.current ? Colors.white : Colors.transparent,
-                          border: Border.all(
-                            color: timelineColor,
-                            width: 2,
-                          ),
-                        ),
-                      ),
-                      Expanded(
-                        child: Container(
-                          width: 2,
-                          color: isLast ? Colors.transparent : timelineColor,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 20),
-                Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.only(bottom: 24.0),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+                    ),
+                    Container(
+                      width: 20,
+                      height: 20,
                       decoration: BoxDecoration(
-                        color: backgroundColor,
-                        borderRadius: BorderRadius.circular(50),
+                        shape: BoxShape.circle,
+                        color: status == ClassStatus.current ? Colors.white : Colors.transparent,
+                        border: Border.all(
+                          color: timelineColor,
+                          width: 2,
+                        ),
                       ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  teacherClass.className,
-                                  style: TextStyle(
-                                    color: textColor,
-                                    fontSize: 18,
-                                    fontWeight: fontWeight,
-                                    decoration: textDecoration,
-                                  ),
-                                ),
-                              ),
-                              Text(
-                                '${teacherClass.startTime.format(context)} - ${teacherClass.endTime.format(context)}',
+                    ),
+                    Expanded(
+                      child: Container(
+                        width: 2,
+                        color: isLast ? Colors.transparent : timelineColor,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 20),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.only(bottom: 24.0),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+                    decoration: BoxDecoration(
+                      color: backgroundColor,
+                      borderRadius: BorderRadius.circular(50),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Expanded(
+                              child: Text(
+                                teacherClass.className,
                                 style: TextStyle(
-                                  color: textColor.withOpacity(0.8),
-                                  fontSize: 14,
+                                  color: textColor,
+                                  fontSize: 18,
                                   fontWeight: fontWeight,
+                                  decoration: textDecoration,
                                 ),
                               ),
-                            ],
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            teacherClass.venue,
-                            style: TextStyle(
-                              color: textColor.withOpacity(0.7),
-                              fontSize: 14,
-                              decoration: textDecoration,
                             ),
+                            Text(
+                              '${teacherClass.startTime.format(context)} - ${teacherClass.endTime.format(context)}',
+                              style: TextStyle(
+                                color: textColor.withOpacity(0.8),
+                                fontSize: 14,
+                                fontWeight: fontWeight,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          teacherClass.venue,
+                          style: TextStyle(
+                            color: textColor.withOpacity(0.7),
+                            fontSize: 14,
+                            decoration: textDecoration,
                           ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
-              ],
-            ),
-          );
-        },
-      ),
+              ),
+            ],
+          ),
+        );
+
+      },
     );
   }
 }

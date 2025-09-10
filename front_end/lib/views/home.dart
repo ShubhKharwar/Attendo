@@ -5,8 +5,9 @@ import 'package:http/http.dart' as http;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'dart:convert';
 import 'loginview.dart';
-import 'schedule_page.dart'; // Import the new schedule page
-import 'dart:async'; // Import for Timer
+import 'schedule_page.dart'; // --- MODIFIED: Import is now used for the Task model
+import 'dart:async';
+import 'package:intl/intl.dart'; // --- ADDED: Needed for date formatting
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -17,31 +18,22 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   String _userName = 'Loading...';
-  Task? _currentTask; // Use the Task model
+  Task? _currentTask;
   final _storage = const FlutterSecureStorage();
   late Timer _timer;
 
-  // --- 1. SIMULATED DATA (used for now) ---
-  // This list is used while the backend logic is commented out.
-  List<Task> _tasks = [
-    Task(title: 'DBMS Class', startTime: const TimeOfDay(hour: 9, minute: 0), endTime: const TimeOfDay(hour: 10, minute: 0)),
-    Task(title: 'DSA Class', startTime: const TimeOfDay(hour: 10, minute: 0), endTime: const TimeOfDay(hour: 11, minute: 30)),
-    Task(title: 'Music Class', startTime: const TimeOfDay(hour: 12, minute: 0), endTime: const TimeOfDay(hour: 13, minute: 0)),
-    Task(title: 'CP Lab', startTime: const TimeOfDay(hour: 14, minute: 0), endTime: const TimeOfDay(hour: 16, minute: 0)),
-    Task(title: 'Gym', startTime: const TimeOfDay(hour: 17, minute: 30), endTime: const TimeOfDay(hour: 18, minute: 30)),
-    Task(title: 'Family Time', startTime: const TimeOfDay(hour: 19, minute: 0), endTime: const TimeOfDay(hour: 21, minute: 0)),
-  ];
+  // --- REMOVED: The hardcoded, simulated _tasks list is no longer needed ---
 
   @override
   void initState() {
     super.initState();
     _fetchUserData();
-    _findCurrentTask();
-    // _fetchSchedule(); // Call this when you are ready to use the backend
+    _fetchSchedule(); // --- MODIFIED: Fetch live data from the backend on startup
 
+    // This timer will re-fetch the schedule every minute to get updates
     _timer = Timer.periodic(const Duration(minutes: 1), (timer) {
       if (mounted) {
-        _findCurrentTask();
+        _fetchSchedule();
       }
     });
   }
@@ -52,52 +44,34 @@ class _HomeScreenState extends State<HomeScreen> {
     super.dispose();
   }
 
-  // --- 2. NEW BACKEND LOGIC (commented out) ---
-  /*
+  // --- ADDED & CORRECTED: This function now fetches and processes live data ---
   Future<void> _fetchSchedule() async {
-    print("Fetching schedule from backend...");
     try {
       final token = await _storage.read(key: 'auth_token');
-      if (token == null) {
-        print("No token for schedule fetch.");
-        return;
-      }
+      if (token == null) return;
 
-      // Replace with your actual schedule endpoint
-      final url = Uri.parse('http://192.168.0.104:3000/api/v1/student/schedule');
+      // 1. Get today's date and format it for the API query
+      final String formattedDate = DateFormat('yyyy-MM-dd').format(DateTime.now());
+      // IMPORTANT: Replace 'YOUR_SERVER_IP' with your actual IP address
+      final url = Uri.parse('http://YOUR_SERVER_IP:3000/api/v1/student/schedule?date=$formattedDate');
 
       final response = await http.get(
         url,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
+        headers: {'Authorization': 'Bearer $token'},
       );
 
       if (response.statusCode == 200 && mounted) {
-        final List<dynamic> scheduleData = json.decode(response.body);
+        // 2. Correctly parse the JSON object and access the 'classes' list
+        final data = json.decode(response.body);
+        final List<dynamic> classesJson = data['classes'] ?? [];
 
-        // Helper function to parse time strings like "14:30"
-        TimeOfDay _parseTime(String time) {
-          final parts = time.split(':');
-          return TimeOfDay(hour: int.parse(parts[0]), minute: int.parse(parts[1]));
-        }
+        // 3. Map the JSON data to your Task model using the factory from schedule_page.dart
+        final List<Task> todaysTasks = classesJson
+            .map((jsonItem) => Task.fromApi(jsonItem))
+            .toList();
 
-        // Map the JSON data to your Task model
-        final List<Task> fetchedTasks = scheduleData.map((taskData) {
-          return Task(
-            title: taskData['title'],
-            startTime: _parseTime(taskData['startTime']),
-            endTime: _parseTime(taskData['endTime']),
-          );
-        }).toList();
-
-        setState(() {
-          _tasks = fetchedTasks; // Replace the manual list with data from the database
-        });
-
-        _findCurrentTask(); // Update the current task display after fetching
-        print("Schedule fetched successfully!");
+        // 4. Find the current task from the fetched list
+        _findCurrentTask(todaysTasks);
 
       } else {
         print('Failed to load schedule. Status code: ${response.statusCode}');
@@ -106,27 +80,29 @@ class _HomeScreenState extends State<HomeScreen> {
       print('An error occurred while fetching the schedule: $e');
     }
   }
-  */
 
-  void _findCurrentTask() {
+  // --- MODIFIED: This function now takes a list of tasks as an argument ---
+  void _findCurrentTask(List<Task> tasks) {
     final now = TimeOfDay.now();
     final today = DateTime.now();
     Task? activeTask;
 
-    for (final task in _tasks) {
+    for (final task in tasks) {
       final startTime = DateTime(today.year, today.month, today.day, task.startTime.hour, task.startTime.minute);
       final endTime = DateTime(today.year, today.month, today.day, task.endTime.hour, task.endTime.minute);
       final nowTime = DateTime(today.year, today.month, today.day, now.hour, now.minute);
 
       if (!nowTime.isBefore(startTime) && nowTime.isBefore(endTime)) {
         activeTask = task;
-        break;
+        break; // Found the current task, no need to check further
       }
     }
 
-    setState(() {
-      _currentTask = activeTask;
-    });
+    if(mounted) {
+      setState(() {
+        _currentTask = activeTask;
+      });
+    }
   }
 
   Future<void> _fetchUserData() async {
@@ -147,7 +123,8 @@ class _HomeScreenState extends State<HomeScreen> {
         });
       }
 
-      final url = Uri.parse('http://192.168.0.104:3000/api/v1/student/profile');
+      // IMPORTANT: Replace 'YOUR_SERVER_IP' with your actual IP address
+      final url = Uri.parse('http://YOUR_SERVER_IP:3000/api/v1/student/profile');
 
       final response = await http.get(
         url,
@@ -161,7 +138,6 @@ class _HomeScreenState extends State<HomeScreen> {
         final data = json.decode(response.body);
         final name = data['name'] ?? 'User';
 
-        // Cache the name for future use
         await _storage.write(key: 'student_name', value: name);
 
         setState(() {
@@ -172,14 +148,12 @@ class _HomeScreenState extends State<HomeScreen> {
         _logout();
       } else {
         print('Failed to load user data. Status code: ${response.statusCode}');
-        // Only show error if we don't have cached data
         if (mounted && cachedName == null) {
           setState(() => _userName = 'Error');
         }
       }
     } catch (e) {
       print('An error occurred while fetching user data: $e');
-      // Try to get cached name before showing error
       final cachedName = await _storage.read(key: 'student_name');
       if (mounted) {
         setState(() {
@@ -192,7 +166,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _logout() async {
     await _storage.delete(key: 'auth_token');
     await _storage.delete(key: 'user_role');
-    await _storage.delete(key: 'student_name'); // Clear cached name
+    await _storage.delete(key: 'student_name');
     if (mounted) {
       Navigator.of(context).pushAndRemoveUntil(
         MaterialPageRoute(builder: (context) => const LoginView()),
@@ -230,6 +204,9 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
   }
+
+  // --- The rest of your UI build methods remain unchanged ---
+  // ... _buildTopBar(), _buildGreeting(), _buildNextTaskCard(), etc. ...
 
   Widget _buildTopBar() {
     return Row(
@@ -319,6 +296,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       fontSize: 32,
                       fontWeight: FontWeight.bold,
                     ),
+                    overflow: TextOverflow.ellipsis,
                   ),
                   const SizedBox(height: 8),
                   if (_currentTask == null)
@@ -332,7 +310,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ],
               ),
             ),
-            const SizedBox(width: 16), // Add spacing between title and time
+            const SizedBox(width: 16),
             if (_currentTask != null)
               Text(
                 '${_currentTask!.startTime.format(context)} - ${_currentTask!.endTime.format(context)}',
