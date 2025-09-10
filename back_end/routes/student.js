@@ -20,6 +20,26 @@ function timeToMinutes(timeStr) {
   return hours * 60 + minutes;
 }
 
+// Add this helper function in student.js
+async function cleanupRecommendations(studentId) {
+  try {
+    // Remove any recommendations older than 30 days
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    const cutoffDate = thirtyDaysAgo.toISOString().slice(0, 10);
+    
+    await DailyRecommendedTask.deleteMany({
+      student: studentId,
+      date: { $lt: cutoffDate }
+    });
+    
+    console.log(`Cleaned up old recommendations for student ${studentId}`);
+  } catch (error) {
+    console.error('Error cleaning up recommendations:', error);
+  }
+}
+
+
 function minutesToTime(minutes) {
   const hours = Math.floor(minutes / 60);
   const mins = minutes % 60;
@@ -347,6 +367,7 @@ function timeToMinutes(t) {
 // Requires Authorization: Bearer <token>
 // UPDATE your existing GET /schedule route in routes/student.js
 // UPDATE your existing GET /schedule route in routes/student.js
+// UPDATE your GET /schedule route in routes/student.js
 studentRouter.get('/schedule', auth, async (req, res) => {
   try {
     const { date } = req.query;
@@ -369,7 +390,7 @@ studentRouter.get('/schedule', auth, async (req, res) => {
       { rollNo, userType: 'student' },
       { name: 1, rollNo: 1, class: 1, SubjectsInfo: 1, interests: 1, _id: 1 }
     ).lean();
-
+    
     if (!student) {
       return res.status(404).json({ message: 'Student not found.' });
     }
@@ -389,29 +410,40 @@ studentRouter.get('/schedule', auth, async (req, res) => {
 
     let allTasks = [...regularClasses];
 
-    // Get/Generate recommended tasks for the date
+    // CRITICAL FIX: Only look for recommendations for the EXACT requested date
     try {
-      let recommendedTasks = await DailyRecommendedTask.findOne({
+      console.log(`Looking for recommendations for exact date: ${date}`);
+      
+      const recommendedTasks = await DailyRecommendedTask.findOne({
         student: student._id,
-        date: date
+        date: date // This ensures we only get recommendations for THIS specific date
       }).lean();
 
-      // If no recommendations exist and it's today or future, generate them
+      // Only generate NEW recommendations if:
+      // 1. No recommendations exist for this specific date AND
+      // 2. The requested date is today or in the future AND  
+      // 3. The requested date is not more than 7 days in the future
       const today = new Date().toISOString().slice(0, 10);
-      const isToday = date === today;
-      const isFuture = date > today;
+      const requestedDate = new Date(date);
+      const todayDate = new Date(today);
+      const daysDifference = Math.floor((requestedDate - todayDate) / (1000 * 60 * 60 * 24));
+      
+      const shouldGenerateRecommendations = !recommendedTasks && 
+                                          date >= today && 
+                                          daysDifference <= 7; // Only generate for next 7 days
 
-      if (!recommendedTasks && (isToday || isFuture)) {
-        console.log(`Generating recommendations for ${date}...`);
-
+      if (shouldGenerateRecommendations) {
+        console.log(`Generating NEW recommendations specifically for date: ${date}`);
+        
         try {
           // Prepare request for Python FastAPI
           const ragRequest = {
             user_id: rollNo,
-            break_duration_minutes: 15, // Default duration
+            break_duration_minutes: 15,
             current_courses: [...new Set(student.SubjectsInfo.map(s => s.SubjectCode))],
             interests: student.interests || [],
-            recent_attendance: {} // You can enhance this based on attendanceLog
+            recent_attendance: {},
+            target_date: date // Pass the target date to the API
           };
 
           // Call Python FastAPI service
@@ -423,30 +455,51 @@ studentRouter.get('/schedule', auth, async (req, res) => {
           });
 
           const recommendations = response.data;
-          console.log(`Received ${recommendations.length} recommendations from Python API`);
+          console.log(`Received ${recommendations.length} recommendations from Python API for ${date}`);
 
           if (recommendations && recommendations.length > 0) {
             // Assign time slots based on existing schedule
             const scheduledTasks = assignTimeSlots(regularClasses, recommendations, date);
-            console.log(`Assigned time slots to ${scheduledTasks.length} recommendations`);
+            console.log(`Assigned time slots to ${scheduledTasks.length} recommendations for ${date}`);
 
-            // Save to MongoDB
-            recommendedTasks = new DailyRecommendedTask({
+            // Save to MongoDB with the SPECIFIC date
+            const newRecommendedTasks = new DailyRecommendedTask({
               student: student._id,
-              date,
+              date: date, // CRITICAL: Save with the exact requested date
               tasks: scheduledTasks
             });
-            await recommendedTasks.save();
-            console.log('Saved recommendations to MongoDB');
+            
+            await newRecommendedTasks.save();
+            console.log(`Saved recommendations to MongoDB for date: ${date}`);
+
+            // Add the newly generated recommendations to the schedule
+            const recommendationTasks = scheduledTasks
+              .filter(task => task.suggestedStartTime)
+              .map(task => ({
+                subject: task.title,
+                class: 'Recommended',
+                startTime: task.suggestedStartTime,
+                duration: `${task.estimatedTime} minutes`,
+                type: 'recommendation',
+                isOfficial: false,
+                reasoning: task.reasoning,
+                urgencyLevel: task.urgencyLevel,
+                taskType: task.taskType,
+                taskId: task.taskId
+              }));
+
+            allTasks = [...regularClasses, ...recommendationTasks];
+            console.log(`Added ${recommendationTasks.length} NEW recommendations to schedule for ${date}`);
           }
         } catch (apiError) {
           console.error('Error calling RAG API:', apiError.message);
-          console.error('API Error details:', apiError.response?.data || apiError.message);
+          // Don't add any recommendations if API call fails
         }
-      }
-
-      // Add recommendation tasks to schedule if they exist
-      if (recommendedTasks && recommendedTasks.tasks.length > 0) {
+      } 
+      // If recommendations exist for this specific date, add them to the schedule
+      else if (recommendedTasks && recommendedTasks.tasks.length > 0) {
+        console.log(`Found existing recommendations for date: ${date}`);
+        
         const recommendationTasks = recommendedTasks.tasks
           .filter(task => task.suggestedStartTime) // Only include tasks with assigned time slots
           .map(task => ({
@@ -463,15 +516,20 @@ studentRouter.get('/schedule', auth, async (req, res) => {
           }));
 
         allTasks = [...regularClasses, ...recommendationTasks];
-        console.log(`Added ${recommendationTasks.length} recommendations to schedule`);
+        console.log(`Added ${recommendationTasks.length} existing recommendations to schedule for ${date}`);
+      } else {
+        console.log(`No recommendations found or generated for date: ${date}`);
       }
 
     } catch (recError) {
-      console.error('Error fetching/generating recommendations for schedule:', recError);
+      console.error(`Error fetching/generating recommendations for date ${date}:`, recError);
+      // Continue with just regular classes if recommendation logic fails
     }
 
     // Sort all tasks by start time
     allTasks.sort((a, b) => timeToMinutes(a.startTime) - timeToMinutes(b.startTime));
+
+    console.log(`Returning schedule for ${date} with ${allTasks.length} total tasks (${regularClasses.length} classes, ${allTasks.length - regularClasses.length} recommendations)`);
 
     return res.status(200).json({
       student: { name: student.name, rollNo: student.rollNo, class: student.class },
@@ -479,7 +537,7 @@ studentRouter.get('/schedule', auth, async (req, res) => {
       day,
       classes: allTasks
     });
-
+    
   } catch (err) {
     console.error('GET /student/schedule error:', err);
     return res.status(500).json({ message: 'Internal server error.' });

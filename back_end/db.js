@@ -136,7 +136,12 @@ const dailyRecommendedTaskSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+// Add compound index for better query performance
 dailyRecommendedTaskSchema.index({ student: 1, date: 1 }, { unique: true });
+
+// Add TTL index to auto-delete old recommendations after 30 days
+dailyRecommendedTaskSchema.index({ createdAt: 1 }, { expireAfterSeconds: 30 * 24 * 60 * 60 });
+
 const DailyRecommendedTask = mongoose.model(
   "DailyRecommendedTask",
   dailyRecommendedTaskSchema
