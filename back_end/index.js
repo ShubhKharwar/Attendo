@@ -1,41 +1,50 @@
 // index.js
 
-// 1. Configure environment variables at the very top
+// 1. Configure environment variables at the very top. This MUST be first.
 require('dotenv').config();
 
+// 2. Set the global DNS lookup order to prefer IPv4.
+// This is the clean, robust fix for the ETIMEDOUT/ENETUNREACH network errors.
+const dns = require('dns');
+dns.setDefaultResultOrder('ipv4first');
+
+// 3. Import all other modules
 const express = require('express');
-const { connectDB } = require('./db'); // Import the connectDB function
+const cors = require('cors');
+const { connectDB } = require('./db'); // Assuming db.js exports this
 const studentRouter = require('./routes/student');
 const adminRouter = require('./routes/admin');
-const cors = require('cors')
 
-
+// 4. Initialize Express App
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Middleware to parse JSON bodies
-app.use(express.json());
-app.use(cors())
+// 5. Apply Middleware
+app.use(cors());
+app.use(express.json()); // Middleware to parse JSON bodies
 
-// Set up your routes
+// 6. Define API Routes
+app.get('/', (req, res) => {
+    res.status(200).send('<h1>Attendo API is running!</h1>');
+});
 app.use('/api/v1/student', studentRouter);
 app.use('/api/v1/admin', adminRouter);
 
-// Function to start the server
+// 7. Function to start the server
 const startServer = async () => {
-  try {
-    // 2. Connect to the database
-    await connectDB();
+    try {
+        // Connect to the database first
+        await connectDB();
 
-    // 3. Start listening for requests ONLY after the database is connected
-    app.listen(PORT, () => {
-      console.log(`Server is running successfully on port ${PORT}`);
-    });
-  } catch (error) {
-    console.error("Failed to connect to the database.", error);
-    process.exit(1);
-  }
+        // Start listening for requests only after the database is connected
+        app.listen(PORT, () => {
+            console.log(`Server is running successfully on port ${PORT}`);
+        });
+    } catch (error) {
+        console.error("Failed to start server:", error);
+        process.exit(1);
+    }
 };
 
-// 4. Run the startup function
+// 8. Run the startup function
 startServer();
