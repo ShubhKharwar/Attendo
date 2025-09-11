@@ -9,7 +9,7 @@ function fileToGenerativePart(buffer, mimeType) {
   return {
     inlineData: {
       data: buffer.toString("base64"),
-      mimeType
+      mimeType,
     },
   };
 }
@@ -22,29 +22,29 @@ async function extractInfoFromPdf(pdfBuffer, mimeType) {
     const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
 
     const prompt = `
-      From the provided PDF document, which contains a list of users, extract the following information for each person:
-      1. Full Name (as "name")
-      2. Roll Number or ID (as "rollNo")
-      3. Email Address (as "email")
-      4. User Type (as "userType"). The userType must be either 'student' or 'admin'.
-      5. Class or Section (as "class"). This field is mainly for students.
+     From the provided PDF document, which contains a list of users, extract the following information for each person:
+     1. Full Name (as "name")
+     2. Roll Number or ID (as "rollNo")
+     3. Email Address (as "email")
+     4. User Type (as "userType"). The userType must be either 'student' or 'admin'.
+     5. Class or Section (as "class"). This field is mainly for students.
 
-      Please return the information ONLY in a valid JSON array format, where each object in the array represents one user.
-      Example format:
-      [
-        {
-          "name": "Jane Doe",
-          "rollNo": "CB.EN.U4XYZ21002",
-          "email": "jane.doe@university.edu",
-          "userType": "student",
-          "class": "CSE-B / (N/A for userType admin"
-        }
-      ]
-      If a class is not specified for an admin, that field can be omitted for that entry.
-      If the document is empty or no user data can be found, return an empty array [].
-      Do not include any other text, explanations, or markdown formatting around the JSON array.
-    `;
-    
+     Please return the information ONLY in a valid JSON array format, where each object in the array represents one user.
+     Example format:
+     [
+       {
+         "name": "Jane Doe",
+         "rollNo": "CB.EN.U4XYZ21002",
+         "email": "jane.doe@university.edu",
+         "userType": "student",
+         "class": "CSE-B / (N/A for userType admin"
+       }
+     ]
+     If a class is not specified for an admin, that field can be omitted for that entry.
+     If the document is empty or no user data can be found, return an empty array [].
+     Do not include any other text, explanations, or markdown formatting around the JSON array.
+   `;
+
     const pdfPart = fileToGenerativePart(pdfBuffer, mimeType);
     const result = await model.generateContent([prompt, pdfPart]);
     const response = await result.response;
@@ -69,31 +69,31 @@ async function extractTimetableFromPdf(pdfBuffer, mimeType) {
 
     // --- CHANGED: Updated prompt to include 'teacherEmail' ---
     const prompt = `
-      From the provided PDF document, which contains a class timetable, extract the schedule for each class session.
-      For each session, identify the following details:
-      1. Subject Code (as "subjectCode")
-      2. Class or Section identifier (e.g., "CSE-A") (as "class")
-      3. Day of the week (as "day")
-      4. Start time in HH:MM format (24-hour) (as "startTime")
-      5. End time in HH:MM format (24-hour) (as "endTime")
-      6. Teacher's Email Address (as "teacherEmail")
+     From the provided PDF document, which contains a class timetable, extract the schedule for each class session.
+     For each session, identify the following details:
+     1. Subject Code (as "subjectCode")
+     2. Class or Section identifier (e.g., "CSE-A") (as "class")
+     3. Day of the week (as "day")
+     4. Start time in HH:MM format (24-hour) (as "startTime")
+     5. End time in HH:MM format (24-hour) (as "endTime")
+     6. Teacher's Email Address (as "teacherEmail")
 
-      Please return the information ONLY in a valid JSON array format. Each object should represent one class session.
-      Example format:
-      [
-        {
-          "subjectCode": "CS305",
-          "class": "CSE-A",
-          "day": "Monday",
-          "startTime": "09:00",
-          "endTime": "10:00",
-          "teacherEmail": "teacher.name@university.edu"
-        }
-      ]
-      If the document is empty or no schedule data can be found, return an empty array [].
-      Do not include any other text, explanations, or markdown formatting around the JSON array.
-    `;
-    
+     Please return the information ONLY in a valid JSON array format. Each object should represent one class session.
+     Example format:
+     [
+       {
+         "subjectCode": "CS305",
+         "class": "CSE-A",
+         "day": "Monday",
+         "startTime": "09:00",
+         "endTime": "10:00",
+         "teacherEmail": "teacher.name@university.edu"
+       }
+     ]
+     If the document is empty or no schedule data can be found, return an empty array [].
+     Do not include any other text, explanations, or markdown formatting around the JSON array.
+   `;
+
     const pdfPart = fileToGenerativePart(pdfBuffer, mimeType);
     const result = await model.generateContent([prompt, pdfPart]);
     const response = await result.response;
@@ -106,4 +106,51 @@ async function extractTimetableFromPdf(pdfBuffer, mimeType) {
   }
 }
 
-module.exports = { extractInfoFromPdf, extractTimetableFromPdf };
+/**
+ * Gets a contextual response from the Gemini model for a student's query.
+ * @param {string} query The student's question.
+ * @param {object} studentContext An object containing student's data (name, courses, schedule, etc.).
+ * @returns {Promise<string>} A promise that resolves to the chatbot's text response.
+ */
+async function getChatbotResponse(query, studentContext) {
+  try {
+    const model = genAI.getGenerativeModel({
+      model: "gemini-1.5-flash-latest",
+    });
+
+    // Construct a detailed prompt with the student's context
+    const prompt = `
+      You are a helpful and friendly personal academic assistant for a student.
+      Your goal is to answer the student's questions based on the information provided about them.
+      Keep your answers concise and directly related to the student's query.
+
+      Here is the student's information:
+      - Name: ${studentContext.name}
+      - Roll Number: ${studentContext.rollNo}
+      - Class: ${studentContext.class}
+      - Today's Schedule: ${JSON.stringify(studentContext.schedule, null, 2)}
+      - Interests: ${studentContext.interests.join(", ") || "Not specified"}
+
+      Based on this information, please answer the following question.
+      If the question is unrelated to the provided academic context (e.g., asking about the weather, general knowledge, or personal opinions),
+      politely decline by saying something like, "I can only help with questions about your academic schedule and courses."
+
+      Student's question: "${query}"
+    `;
+
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    const text = response.text();
+
+    return text;
+  } catch (error) {
+    console.error("Error calling Gemini API for chatbot:", error);
+    throw new Error("Failed to get a response from the chatbot assistant.");
+  }
+}
+
+module.exports = {
+  extractInfoFromPdf,
+  extractTimetableFromPdf,
+  getChatbotResponse,
+};

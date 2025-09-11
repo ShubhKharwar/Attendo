@@ -6,6 +6,8 @@ const axios = require("axios"); // npm install axios if not already installed
 const { DailyRecommendedTask } = require("../db"); // Add this import
 const { User } = require("../db");
 const { auth } = require("../auth");
+// Import the new Gemini helper function
+const { getChatbotResponse } = require("../utils/gemini");
 require("dotenv").config();
 
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -16,7 +18,7 @@ const studentRouter = Router();
 // Helper functions for time calculations
 function timeToMinutes(timeStr) {
   if (!timeStr) return 0;
-  const [hours, minutes] = timeStr.split(':').map(Number);
+  const [hours, minutes] = timeStr.split(":").map(Number);
   return hours * 60 + minutes;
 }
 
@@ -27,29 +29,38 @@ async function cleanupRecommendations(studentId) {
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
     const cutoffDate = thirtyDaysAgo.toISOString().slice(0, 10);
-    
+
     await DailyRecommendedTask.deleteMany({
       student: studentId,
-      date: { $lt: cutoffDate }
+      date: { $lt: cutoffDate },
     });
-    
+
     console.log(`Cleaned up old recommendations for student ${studentId}`);
   } catch (error) {
-    console.error('Error cleaning up recommendations:', error);
+    console.error("Error cleaning up recommendations:", error);
   }
 }
-
 
 function minutesToTime(minutes) {
   const hours = Math.floor(minutes / 60);
   const mins = minutes % 60;
-  return `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}`;
+  return `${hours.toString().padStart(2, "0")}:${mins
+    .toString()
+    .padStart(2, "0")}`;
 }
 
 function dayNameFromISO(isoDate) {
   const d = new Date(`${isoDate}T00:00:00`);
   if (Number.isNaN(d.getTime())) return null;
-  const names = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  const names = [
+    "Sunday",
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
+  ];
   return names[d.getDay()];
 }
 
@@ -58,14 +69,18 @@ function dayNameFromISO(isoDate) {
 function assignTimeSlots(existingClasses, recommendations, date) {
   const workingHours = {
     start: 9 * 60, // 9:00 AM in minutes
-    end: 18 * 60 // 6:00 PM in minutes
+    end: 18 * 60, // 6:00 PM in minutes
   };
 
   // Convert existing classes to busy time slots
-  const busySlots = existingClasses.map(cls => ({
-    start: timeToMinutes(cls.startTime), // Fix: use startTime instead of StartTime
-    end: timeToMinutes(cls.startTime) + parseInt(cls.duration?.replace(' minutes', '') || '60')
-  })).sort((a, b) => a.start - b.start);
+  const busySlots = existingClasses
+    .map((cls) => ({
+      start: timeToMinutes(cls.startTime), // Fix: use startTime instead of StartTime
+      end:
+        timeToMinutes(cls.startTime) +
+        parseInt(cls.duration?.replace(" minutes", "") || "60"),
+    }))
+    .sort((a, b) => a.start - b.start);
 
   // Find available time gaps
   const availableSlots = [];
@@ -75,11 +90,12 @@ function assignTimeSlots(existingClasses, recommendations, date) {
     // Add gap before this busy slot
     if (currentTime < busySlot.start) {
       const gapDuration = busySlot.start - currentTime;
-      if (gapDuration >= 10) { // Only consider gaps of 10+ minutes
+      if (gapDuration >= 10) {
+        // Only consider gaps of 10+ minutes
         availableSlots.push({
           start: currentTime,
           end: busySlot.start,
-          duration: gapDuration
+          duration: gapDuration,
         });
       }
     }
@@ -93,7 +109,7 @@ function assignTimeSlots(existingClasses, recommendations, date) {
       availableSlots.push({
         start: currentTime,
         end: workingHours.end,
-        duration: finalDuration
+        duration: finalDuration,
       });
     }
   }
@@ -105,8 +121,11 @@ function assignTimeSlots(existingClasses, recommendations, date) {
   // Sort recommendations by urgency and rank
   const sortedRecs = [...recommendations].sort((a, b) => {
     const urgencyWeight = { high: 3, medium: 2, low: 1 };
-    return (urgencyWeight[b.urgency_level] || 2) - (urgencyWeight[a.urgency_level] || 2) ||
-           (a.rank || 1) - (b.rank || 1);
+    return (
+      (urgencyWeight[b.urgency_level] || 2) -
+        (urgencyWeight[a.urgency_level] || 2) ||
+      (a.rank || 1) - (b.rank || 1)
+    );
   });
 
   for (const rec of sortedRecs) {
@@ -133,13 +152,14 @@ function assignTimeSlots(existingClasses, recommendations, date) {
           suggestedEndTime: endTime,
           isScheduled: false,
           rank: rec.rank || 1,
-          difficultyLevel: rec.difficulty_level || "medium"
+          difficultyLevel: rec.difficulty_level || "medium",
         });
 
         // Update the slot
         slot.start += taskDuration + 5; // Add 5min buffer
-        slot.duration -= (taskDuration + 5);
-        if (slot.duration < 10) { // Less than 10 minutes left
+        slot.duration -= taskDuration + 5;
+        if (slot.duration < 10) {
+          // Less than 10 minutes left
           slotIndex++;
         }
         break;
@@ -157,15 +177,17 @@ function assignTimeSlots(existingClasses, recommendations, date) {
   return scheduledRecommendations;
 }
 
-
-
-
 // --- Zod Schema for Input Validation ---
 // The signup schema has been removed as it's no longer needed.
 const signinSchema = z.object({
   email: z.string().email(),
   rollNo: z.string().min(1, { message: "Roll number is required." }),
   password: z.string().min(8, { message: "Password is required." }),
+});
+
+// Add a new schema for the chatbot query
+const chatbotQuerySchema = z.object({
+  query: z.string().min(1, { message: "Query cannot be empty." }),
 });
 
 /**
@@ -313,7 +335,7 @@ studentRouter.post("/markAttendance", auth, async (req, res) => {
       // Subject found - increment presentDays
       attendanceEntry.presentDays += 1;
       // Mark the array as modified so Mongoose knows to save it
-      user.markModified('attendanceLog');
+      user.markModified("attendanceLog");
     } else {
       // Subject not found - create new entry
       user.attendanceLog.push({
@@ -340,215 +362,206 @@ studentRouter.post("/markAttendance", auth, async (req, res) => {
   }
 });
 
-// studentRouter.js
-
-// Helpers (place near the top of this file)
-function dayNameFromISO(isoDate) {
-  const d = new Date(`${isoDate}T00:00:00`);
-  if (Number.isNaN(d.getTime())) return null;
-  const names = [
-    "Sunday",
-    "Monday",
-    "Tuesday",
-    "Wednesday",
-    "Thursday",
-    "Friday",
-    "Saturday",
-  ];
-  return names[d.getDay()];
-}
-
-function timeToMinutes(t) {
-  const [h, m] = String(t).split(":").map(Number);
-  return (h ?? 0) * 60 + (m ?? 0);
-}
-
 // GET /student/schedule?date=yyyy-MM-dd
-// Requires Authorization: Bearer <token>
-// UPDATE your existing GET /schedule route in routes/student.js
-// UPDATE your existing GET /schedule route in routes/student.js
-// UPDATE your GET /schedule route in routes/student.js
-studentRouter.get('/schedule', auth, async (req, res) => {
+studentRouter.get("/schedule", auth, async (req, res) => {
   try {
     const { date } = req.query;
     if (!date) {
-      return res.status(400).json({ message: 'Missing date query param (yyyy-MM-dd).' });
+      return res
+        .status(400)
+        .json({ message: "Missing date query param (yyyy-MM-dd)." });
     }
 
     const { rollNo } = req.user || {};
     if (!rollNo) {
-      return res.status(401).json({ message: 'Unauthorized: missing token payload.' });
+      return res
+        .status(401)
+        .json({ message: "Unauthorized: missing token payload." });
     }
 
     const day = dayNameFromISO(date);
     if (!day) {
-      return res.status(400).json({ message: 'Invalid date format. Use yyyy-MM-dd.' });
+      return res
+        .status(400)
+        .json({ message: "Invalid date format. Use yyyy-MM-dd." });
     }
 
     // Fetch student data
     const student = await User.findOne(
-      { rollNo, userType: 'student' },
+      { rollNo, userType: "student" },
       { name: 1, rollNo: 1, class: 1, SubjectsInfo: 1, interests: 1, _id: 1 }
     ).lean();
-    
+
     if (!student) {
-      return res.status(404).json({ message: 'Student not found.' });
+      return res.status(404).json({ message: "Student not found." });
     }
 
     // Get regular classes for the day
     const regularClasses = (student.SubjectsInfo || [])
-      .filter(s => String(s.Day).toLowerCase() === day.toLowerCase())
+      .filter((s) => String(s.Day).toLowerCase() === day.toLowerCase())
       .sort((a, b) => timeToMinutes(a.StartTime) - timeToMinutes(b.StartTime))
-      .map(s => ({
+      .map((s) => ({
         subject: s.SubjectCode,
         class: student.class,
         startTime: s.StartTime,
         duration: s.DurationOfClass,
-        type: 'class',
-        isOfficial: true
+        type: "class",
+        isOfficial: true,
       }));
 
     let allTasks = [...regularClasses];
 
-    // CRITICAL FIX: Only look for recommendations for the EXACT requested date
     try {
       console.log(`Looking for recommendations for exact date: ${date}`);
-      
+
       const recommendedTasks = await DailyRecommendedTask.findOne({
         student: student._id,
-        date: date // This ensures we only get recommendations for THIS specific date
+        date: date,
       }).lean();
 
-      // Only generate NEW recommendations if:
-      // 1. No recommendations exist for this specific date AND
-      // 2. The requested date is today or in the future AND  
-      // 3. The requested date is not more than 7 days in the future
       const today = new Date().toISOString().slice(0, 10);
       const requestedDate = new Date(date);
       const todayDate = new Date(today);
-      const daysDifference = Math.floor((requestedDate - todayDate) / (1000 * 60 * 60 * 24));
-      
-      const shouldGenerateRecommendations = !recommendedTasks && 
-                                          date >= today && 
-                                          daysDifference <= 7; // Only generate for next 7 days
+      const daysDifference = Math.floor(
+        (requestedDate - todayDate) / (1000 * 60 * 60 * 24)
+      );
+
+      const shouldGenerateRecommendations =
+        !recommendedTasks && date >= today && daysDifference <= 7;
 
       if (shouldGenerateRecommendations) {
         console.log(`Generating NEW recommendations specifically for date: ${date}`);
-        
+
         try {
-          // Prepare request for Python FastAPI
           const ragRequest = {
             user_id: rollNo,
             break_duration_minutes: 15,
-            current_courses: [...new Set(student.SubjectsInfo.map(s => s.SubjectCode))],
+            current_courses: [
+              ...new Set(student.SubjectsInfo.map((s) => s.SubjectCode)),
+            ],
             interests: student.interests || [],
             recent_attendance: {},
-            target_date: date // Pass the target date to the API
+            target_date: date,
           };
 
-          // Call Python FastAPI service
-          const response = await axios.post('http://localhost:8000/recommendations/', ragRequest, {
-            timeout: 10000,
-            headers: {
-              'Content-Type': 'application/json'
+          const response = await axios.post(
+            "http://localhost:8000/recommendations/",
+            ragRequest,
+            {
+              timeout: 10000,
+              headers: {
+                "Content-Type": "application/json",
+              },
             }
-          });
+          );
 
           const recommendations = response.data;
-          console.log(`Received ${recommendations.length} recommendations from Python API for ${date}`);
+          console.log(
+            `Received ${recommendations.length} recommendations from Python API for ${date}`
+          );
 
           if (recommendations && recommendations.length > 0) {
-            // Assign time slots based on existing schedule
-            const scheduledTasks = assignTimeSlots(regularClasses, recommendations, date);
-            console.log(`Assigned time slots to ${scheduledTasks.length} recommendations for ${date}`);
+            const scheduledTasks = assignTimeSlots(
+              regularClasses,
+              recommendations,
+              date
+            );
+            console.log(
+              `Assigned time slots to ${scheduledTasks.length} recommendations for ${date}`
+            );
 
-            // Save to MongoDB with the SPECIFIC date
             const newRecommendedTasks = new DailyRecommendedTask({
               student: student._id,
-              date: date, // CRITICAL: Save with the exact requested date
-              tasks: scheduledTasks
+              date: date,
+              tasks: scheduledTasks,
             });
-            
+
             await newRecommendedTasks.save();
             console.log(`Saved recommendations to MongoDB for date: ${date}`);
 
-            // Add the newly generated recommendations to the schedule
             const recommendationTasks = scheduledTasks
-              .filter(task => task.suggestedStartTime)
-              .map(task => ({
+              .filter((task) => task.suggestedStartTime)
+              .map((task) => ({
                 subject: task.title,
-                class: 'Recommended',
+                class: "Recommended",
                 startTime: task.suggestedStartTime,
                 duration: `${task.estimatedTime} minutes`,
-                type: 'recommendation',
+                type: "recommendation",
                 isOfficial: false,
                 reasoning: task.reasoning,
                 urgencyLevel: task.urgencyLevel,
                 taskType: task.taskType,
-                taskId: task.taskId
+                taskId: task.taskId,
               }));
 
             allTasks = [...regularClasses, ...recommendationTasks];
-            console.log(`Added ${recommendationTasks.length} NEW recommendations to schedule for ${date}`);
+            console.log(
+              `Added ${recommendationTasks.length} NEW recommendations to schedule for ${date}`
+            );
           }
         } catch (apiError) {
-          console.error('Error calling RAG API:', apiError.message);
-          // Don't add any recommendations if API call fails
+          console.error("Error calling RAG API:", apiError.message);
         }
-      } 
-      // If recommendations exist for this specific date, add them to the schedule
-      else if (recommendedTasks && recommendedTasks.tasks.length > 0) {
+      } else if (recommendedTasks && recommendedTasks.tasks.length > 0) {
         console.log(`Found existing recommendations for date: ${date}`);
-        
+
         const recommendationTasks = recommendedTasks.tasks
-          .filter(task => task.suggestedStartTime) // Only include tasks with assigned time slots
-          .map(task => ({
+          .filter((task) => task.suggestedStartTime)
+          .map((task) => ({
             subject: task.title,
-            class: 'Recommended',
+            class: "Recommended",
             startTime: task.suggestedStartTime,
             duration: `${task.estimatedTime} minutes`,
-            type: 'recommendation',
+            type: "recommendation",
             isOfficial: false,
             reasoning: task.reasoning,
             urgencyLevel: task.urgencyLevel,
             taskType: task.taskType,
-            taskId: task.taskId
+            taskId: task.taskId,
           }));
 
         allTasks = [...regularClasses, ...recommendationTasks];
-        console.log(`Added ${recommendationTasks.length} existing recommendations to schedule for ${date}`);
+        console.log(
+          `Added ${recommendationTasks.length} existing recommendations to schedule for ${date}`
+        );
       } else {
         console.log(`No recommendations found or generated for date: ${date}`);
       }
-
     } catch (recError) {
-      console.error(`Error fetching/generating recommendations for date ${date}:`, recError);
-      // Continue with just regular classes if recommendation logic fails
+      console.error(
+        `Error fetching/generating recommendations for date ${date}:`,
+        recError
+      );
     }
 
-    // Sort all tasks by start time
-    allTasks.sort((a, b) => timeToMinutes(a.startTime) - timeToMinutes(b.startTime));
+    allTasks.sort(
+      (a, b) => timeToMinutes(a.startTime) - timeToMinutes(b.startTime)
+    );
 
-    console.log(`Returning schedule for ${date} with ${allTasks.length} total tasks (${regularClasses.length} classes, ${allTasks.length - regularClasses.length} recommendations)`);
+    console.log(
+      `Returning schedule for ${date} with ${allTasks.length} total tasks (${
+        regularClasses.length
+      } classes, ${allTasks.length - regularClasses.length} recommendations)`
+    );
 
     return res.status(200).json({
-      student: { name: student.name, rollNo: student.rollNo, class: student.class },
+      student: {
+        name: student.name,
+        rollNo: student.rollNo,
+        class: student.class,
+      },
       date,
       day,
-      classes: allTasks
+      classes: allTasks,
     });
-    
   } catch (err) {
-    console.error('GET /student/schedule error:', err);
-    return res.status(500).json({ message: 'Internal server error.' });
+    console.error("GET /student/schedule error:", err);
+    return res.status(500).json({ message: "Internal server error." });
   }
 });
 
-
 studentRouter.get("/courses", auth, async (req, res) => {
   try {
-    // 1. Get student's roll number from the decoded JWT payload.
-    // Updated from 'rollNumber' to 'rollNo' to match your schema.
     const studentRollNo = req.user.rollNo;
 
     if (!studentRollNo) {
@@ -557,19 +570,15 @@ studentRouter.get("/courses", auth, async (req, res) => {
         .json({ message: "Roll number not found in token." });
     }
 
-    // 2. Find the student in the database using their roll number.
-    // Using the User model now.
     const student = await User.findOne({ rollNo: studentRollNo });
 
     if (!student) {
       return res.status(404).json({ message: "Student not found." });
     }
 
-    // 3. Get the SubjectsInfo array directly from the student document.
     const subjectsInfo = student.SubjectsInfo;
 
     if (!subjectsInfo || subjectsInfo.length === 0) {
-      // Return an empty array if the student has no subject information.
       return res.status(200).json([]);
     }
 
@@ -584,7 +593,6 @@ studentRouter.get("/courses", auth, async (req, res) => {
       Subjects.push(uniqueSubjects[i].SubjectCode);
     }
 
-    // 4. Return the list of subjects as JSON
     res.status(200).json(Subjects);
   } catch (error) {
     console.error("Error fetching student courses:", error);
@@ -592,93 +600,145 @@ studentRouter.get("/courses", auth, async (req, res) => {
   }
 });
 
-
-// Add this NEW ROUTE after your existing routes:
-// ADD THIS NEW ROUTE in routes/student.js
-studentRouter.get('/recommendations', auth, async (req, res) => {
+studentRouter.get("/recommendations", auth, async (req, res) => {
   try {
     const rollNo = req.user.rollNo;
     const date = req.query.date || new Date().toISOString().slice(0, 10);
 
-    // Find student
-    const student = await User.findOne({ rollNo, userType: 'student' });
+    const student = await User.findOne({ rollNo, userType: "student" });
     if (!student) {
-      return res.status(404).json({ message: 'Student not found' });
+      return res.status(404).json({ message: "Student not found" });
     }
 
-    // Check if recommendations already exist for this date
-    const existingRecs = await DailyRecommendedTask.findOne({ 
-      student: student._id, 
-      date 
+    const existingRecs = await DailyRecommendedTask.findOne({
+      student: student._id,
+      date,
     });
 
     if (existingRecs) {
-      return res.json({ 
-        tasks: existingRecs.tasks, 
+      return res.json({
+        tasks: existingRecs.tasks,
         cached: true,
-        generatedAt: existingRecs.generatedAt
+        generatedAt: existingRecs.generatedAt,
       });
     }
 
-    // Generate new recommendations for today only
     if (date === new Date().toISOString().slice(0, 10)) {
       try {
-        // Get student's schedule for the day to find available time slots
         const day = dayNameFromISO(date);
-        const todaysClasses = (student.SubjectsInfo || [])
-          .filter(s => String(s.Day).toLowerCase() === day?.toLowerCase());
+        const todaysClasses = (student.SubjectsInfo || []).filter(
+          (s) => String(s.Day).toLowerCase() === day?.toLowerCase()
+        );
 
-        // Prepare request for Python FastAPI
         const ragRequest = {
           user_id: rollNo,
           break_duration_minutes: parseInt(req.query.duration) || 15,
-          current_courses: [...new Set(student.SubjectsInfo.map(s => s.SubjectCode))],
+          current_courses: [
+            ...new Set(student.SubjectsInfo.map((s) => s.SubjectCode)),
+          ],
           interests: student.interests || [],
-          recent_attendance: {} // You can enhance this based on attendanceLog
+          recent_attendance: {},
         };
 
-        // Call Python FastAPI service
-        const response = await axios.post('http://localhost:8000/recommendations/', ragRequest, {
-          timeout: 10000
-        });
-        
+        const response = await axios.post(
+          "http://localhost:8000/recommendations/",
+          ragRequest,
+          {
+            timeout: 10000,
+          }
+        );
+
         const recommendations = response.data;
 
         if (recommendations && recommendations.length > 0) {
-          // Assign time slots based on existing schedule
-          const scheduledTasks = assignTimeSlots(todaysClasses, recommendations, date);
+          const scheduledTasks = assignTimeSlots(
+            todaysClasses,
+            recommendations,
+            date
+          );
 
-          // Save to MongoDB
           const dailyRec = new DailyRecommendedTask({
             student: student._id,
             date,
-            tasks: scheduledTasks
+            tasks: scheduledTasks,
           });
-          
+
           await dailyRec.save();
-          return res.json({ 
-            tasks: dailyRec.tasks, 
+          return res.json({
+            tasks: dailyRec.tasks,
             cached: false,
-            generatedAt: dailyRec.generatedAt
+            generatedAt: dailyRec.generatedAt,
           });
         }
       } catch (apiError) {
-        console.error('Error calling RAG API:', apiError.message);
-        // Fall through to return empty array
+        console.error("Error calling RAG API:", apiError.message);
       }
     }
 
     res.json({ tasks: [], cached: false });
-
   } catch (error) {
-    console.error('Error fetching recommendations:', error);
-    res.status(500).json({ message: 'Server error' });
+    console.error("Error fetching recommendations:", error);
+    res.status(500).json({ message: "Server error" });
   }
 });
 
-studentRouter.get('/call',async(req,res)=>{
+/**
+ * @route   POST /student/chatbot
+ * @desc    Gets a student's query and responds using Gemini API
+ * @access  Protected
+ */
+studentRouter.post("/chatbot", auth, async (req, res) => {
+  // 1. Validate input
+  const result = chatbotQuerySchema.safeParse(req.body);
+  if (!result.success) {
+    return res.status(400).json({
+      message: "Invalid input.",
+      errors: result.error.flatten().fieldErrors,
+    });
+  }
+  const { query } = result.data;
+  const { rollNo } = req.user;
 
-})
+  try {
+    // 2. Fetch student data to build context
+    const student = await User.findOne({ rollNo }).lean();
+    if (!student) {
+      return res.status(404).json({ message: "Student not found." });
+    }
 
+    // 3. Construct a simplified context object for the AI
+    const studentContext = {
+      name: student.name,
+      rollNo: student.rollNo,
+      class: student.class,
+      interests: student.interests || [],
+      // Provide today's schedule as context
+      schedule: (student.SubjectsInfo || [])
+        .filter((s) => {
+          const today = new Date().toLocaleString("en-us", { weekday: "long" });
+          return String(s.Day).toLowerCase() === today.toLowerCase();
+        })
+        .map((s) => ({
+          subject: s.SubjectCode,
+          day: s.Day,
+          startTime: s.StartTime,
+          duration: s.DurationOfClass,
+        })),
+    };
+
+    // 4. Call the Gemini API helper
+    const aiResponse = await getChatbotResponse(query, studentContext);
+
+    // 5. Send the response back to the client
+    res.status(200).json({ response: aiResponse });
+  } catch (error) {
+    console.error("Error in /chatbot endpoint:", error);
+    res
+      .status(500)
+      .json({ message: "An error occurred while communicating with the assistant." });
+  }
+});
+
+studentRouter.get("/call", async (req, res) => {});
 
 module.exports = studentRouter;
