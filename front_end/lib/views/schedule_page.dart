@@ -112,7 +112,7 @@ class _SchedulePageState extends State<SchedulePage> {
       throw Exception('Authentication token not found. Please log in again.');
     }
 
-    final url = Uri.parse('http://192.168.0.104:3000/api/v1/student/schedule?date=$formattedDate');
+    final url = Uri.parse('http://10.252.6.161:3000/api/v1/student/schedule?date=$formattedDate');
     
     print('🗓️ Fetching schedule for SPECIFIC date: $formattedDate'); // Debug log
     

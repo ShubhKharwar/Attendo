@@ -10,7 +10,7 @@ import 'teacher_attendance_page.dart';
 import 'teacher_schedule_page.dart';
 import 'teacher_upload_page.dart';
 
-// --- Data Model & Color Constants ---
+// --- Data Model defined locally ---
 class TeacherClass {
   final String className;
   final String venue;
@@ -23,8 +23,40 @@ class TeacherClass {
     required this.startTime,
     required this.endTime,
   });
+
+  // Factory constructor to parse from the API response
+  factory TeacherClass.fromJson(Map<String, dynamic> json) {
+    TimeOfDay startTime = _parseTime(json['startTime'] ?? '00:00');
+    // The backend provides 'duration', so we calculate the end time
+    TimeOfDay endTime = _calculateEndTime(startTime, json['duration'] ?? '0 minutes');
+
+    return TeacherClass(
+      className: json['subject'] ?? 'Unknown Subject',
+      venue: json['class'] ?? 'Unknown Class', // 'class' from backend is venue here
+      startTime: startTime,
+      endTime: endTime,
+    );
+  }
 }
 
+// Helper function to parse time from "HH:mm" string
+TimeOfDay _parseTime(String time) {
+  final parts = time.split(':');
+  if (parts.length != 2) return const TimeOfDay(hour: 0, minute: 0);
+  return TimeOfDay(hour: int.parse(parts[0]), minute: int.parse(parts[1]));
+}
+
+// Helper function to calculate end time from start time and duration string
+TimeOfDay _calculateEndTime(TimeOfDay startTime, String duration) {
+  final minutesToAdd = int.tryParse(duration.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
+  final now = DateTime.now();
+  final startDateTime = DateTime(now.year, now.month, now.day, startTime.hour, startTime.minute);
+  final endDateTime = startDateTime.add(Duration(minutes: minutesToAdd));
+  return TimeOfDay.fromDateTime(endDateTime);
+}
+
+
+// --- Color Constants ---
 const Color kPrimaryColor = Color(0xFF4CAF50);
 const Color kBackgroundColor = Colors.black;
 const Color kCardColor = Color(0xFF1E1E1E);
@@ -42,40 +74,14 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
   final _storage = const FlutterSecureStorage();
   late Timer _timer;
 
-  // --- 1. SIMULATED DATA (from your logic) ---
-  List<TeacherClass> _classes = [
-    TeacherClass(
-      className: 'Database Management Systems',
-      venue: 'Room 301, CS Block',
-      startTime: const TimeOfDay(hour: 9, minute: 0),
-      endTime: const TimeOfDay(hour: 10, minute: 30),
-    ),
-    TeacherClass(
-      className: 'Data Structures & Algorithms',
-      venue: 'Lab 2, IT Block',
-      startTime: const TimeOfDay(hour: 11, minute: 0),
-      endTime: const TimeOfDay(hour: 12, minute: 30),
-    ),
-    TeacherClass(
-      className: 'Software Engineering',
-      venue: 'Room 205, Main Block',
-      startTime: const TimeOfDay(hour: 14, minute: 0),
-      endTime: const TimeOfDay(hour: 15, minute: 30),
-    ),
-    TeacherClass(
-      className: 'Computer Networks',
-      venue: 'Room 401, CS Block',
-      startTime: const TimeOfDay(hour: 16, minute: 0),
-      endTime: const TimeOfDay(hour: 17, minute: 30),
-    ),
-  ];
+  // List is now initialized empty and populated by the backend.
+  List<TeacherClass> _classes = [];
 
   @override
   void initState() {
     super.initState();
     _fetchTeacherData();
-    _findNextClass();
-    // _fetchTeacherSchedule(); // Call this when you are ready to use the backend
+    _fetchTeacherSchedule(); // Fetch schedule from backend on init
 
     _timer = Timer.periodic(const Duration(minutes: 1), (timer) {
       if (mounted) {
@@ -90,8 +96,7 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
     super.dispose();
   }
 
-  // --- 2. BACKEND LOGIC (from your code, commented out) ---
-  /*
+  // --- BACKEND LOGIC TO FETCH SCHEDULE ---
   Future<void> _fetchTeacherSchedule() async {
     print("Fetching teacher schedule from backend...");
     try {
@@ -101,8 +106,9 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
         return;
       }
 
-      // Replace with your actual teacher schedule endpoint
-      final url = Uri.parse('http://192.168.0.104:3000/api/v1/teacher/schedule');
+      // Fetch the schedule for today.
+      final String formattedDate = DateFormat('yyyy-MM-dd').format(DateTime.now());
+      final url = Uri.parse('http://10.252.6.161:3000/api/v1/admin/schedule?date=$formattedDate');
 
       final response = await http.get(
         url,
@@ -113,39 +119,28 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
       );
 
       if (response.statusCode == 200 && mounted) {
-        final List<dynamic> scheduleData = json.decode(response.body);
+        final data = json.decode(response.body);
+        final List<dynamic> classesJson = data['classes'] ?? [];
 
-        // Helper function to parse time strings like "14:30"
-        TimeOfDay _parseTime(String time) {
-          final parts = time.split(':');
-          return TimeOfDay(hour: int.parse(parts[0]), minute: int.parse(parts[1]));
-        }
-
-        // Map the JSON data to your TeacherClass model
-        final List<TeacherClass> fetchedClasses = scheduleData.map((classData) {
-          return TeacherClass(
-            className: classData['className'],
-            venue: classData['venue'],
-            startTime: _parseTime(classData['startTime']),
-            endTime: _parseTime(classData['endTime']),
-          );
-        }).toList();
+        final List<TeacherClass> fetchedClasses = classesJson
+            .map((jsonItem) => TeacherClass.fromJson(jsonItem))
+            .toList();
 
         setState(() {
-          _classes = fetchedClasses; // Replace the manual list with data from the database
+          _classes = fetchedClasses; // Replace the list with data from the database
         });
 
         _findNextClass(); // Update the next class display after fetching
         print("Teacher schedule fetched successfully!");
 
       } else {
-        print('Failed to load teacher schedule. Status code: ${response.statusCode}');
+        final errorData = json.decode(response.body);
+        print('Failed to load teacher schedule. Status code: ${response.statusCode}. Error: ${errorData['message']}');
       }
     } catch (e) {
       print('An error occurred while fetching the teacher schedule: $e');
     }
   }
-  */
 
   void _findNextClass() {
     final now = TimeOfDay.now();
@@ -160,12 +155,13 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
     });
 
     for (final classItem in _classes) {
-      final startTime = DateTime(today.year, today.month, today.day, classItem.startTime.hour, classItem.startTime.minute);
+      final endTime = DateTime(today.year, today.month, today.day, classItem.endTime.hour, classItem.endTime.minute);
       final nowTime = DateTime(today.year, today.month, today.day, now.hour, now.minute);
 
-      if (nowTime.isBefore(startTime)) {
+      // Find the first class that hasn't ended yet
+      if (nowTime.isBefore(endTime)) {
         upcomingClass = classItem;
-        break; // Found the very next class, so we can stop looping
+        break;
       }
     }
 
@@ -193,7 +189,7 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
         });
       }
 
-      final url = Uri.parse('http://192.168.0.104:3000/api/v1/student/profile'); // ⚠️ Should this be /teacher/profile ?
+      final url = Uri.parse('http://10.252.6.161:3000/api/v1/student/profile'); // ⚠️ Should this be /teacher/profile ?
 
       final response = await http.get(
         url,
@@ -372,7 +368,7 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
               Align(
                 alignment: Alignment.centerRight,
                 child: Text(
-                  'Starts at: ${_nextClass!.startTime.format(context)}',
+                  '${_nextClass!.startTime.format(context)} - ${_nextClass!.endTime.format(context)}',
                   style: const TextStyle(
                     color: Colors.white,
                     fontSize: 16,
@@ -510,3 +506,4 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
     );
   }
 }
+

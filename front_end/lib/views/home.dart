@@ -77,7 +77,7 @@ class _HomeScreenState extends State<HomeScreen> {
       if (token == null) return;
 
       final String formattedDate = DateFormat('yyyy-MM-dd').format(DateTime.now());
-      final url = Uri.parse('http://192.168.0.104:3000/api/v1/student/schedule?date=$formattedDate');
+      final url = Uri.parse('http://10.252.6.161:3000/api/v1/student/schedule?date=$formattedDate');
 
       final response = await http.get(
         url,
@@ -140,7 +140,7 @@ class _HomeScreenState extends State<HomeScreen> {
         });
       }
 
-      final url = Uri.parse('http://192.168.0.104:3000/api/v1/student/profile');
+      final url = Uri.parse('http://10.252.6.161:3000/api/v1/student/profile');
       final response = await http.get(
         url,
         headers: {

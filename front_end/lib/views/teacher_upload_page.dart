@@ -100,7 +100,7 @@ class _TeacherUploadPageState extends State<TeacherUploadPage> {
         return;
       }
 
-      final uri = Uri.parse('http://192.168.0.104:3000/api/v1/admin/upload');
+      final uri = Uri.parse('http://10.252.6.161:3000/api/v1/admin/upload');
       final request = http.MultipartRequest('POST', uri);
 
       request.headers['Authorization'] = 'Bearer $token';
@@ -165,7 +165,7 @@ class _TeacherUploadPageState extends State<TeacherUploadPage> {
         return;
       }
 
-      final uri = Uri.parse('http://192.168.0.104:3000/api/v1/admin/upload-timetable');
+      final uri = Uri.parse('http://10.252.6.161:3000/api/v1/admin/upload-timetable');
       final request = http.MultipartRequest('POST', uri);
 
       request.headers['Authorization'] = 'Bearer $token';
