@@ -466,6 +466,48 @@ adminRouter.get('/courses', auth, async (req, res) => {
 // });
 
 
+// Add subjects to a specific student
+adminRouter.post('/add-subjects-to-student', auth, async (req, res) => {
+  try {
+    const { rollNo, subjects } = req.body;
+    
+    if (!rollNo || !Array.isArray(subjects) || subjects.length === 0) {
+      return res.status(400).json({ 
+        message: 'rollNo and subjects array are required' 
+      });
+    }
+    
+    // Validate each subject has required fields
+    for (const subject of subjects) {
+      if (!subject.SubjectCode || !subject.Day || !subject.StartTime || !subject.DurationOfClass) {
+        return res.status(400).json({
+          message: 'Each subject must have SubjectCode, Day, StartTime, and DurationOfClass'
+        });
+      }
+    }
+    
+    // Find and update the student
+    const updatedUser = await User.findOneAndUpdate(
+      { rollNo: rollNo, userType: 'student' },
+      { $push: { SubjectsInfo: { $each: subjects } } },
+      { new: true }
+    );
+    
+    if (!updatedUser) {
+      return res.status(404).json({ message: 'Student not found' });
+    }
+    
+    res.status(200).json({
+      message: `Successfully added ${subjects.length} subjects to ${updatedUser.name}`,
+      addedSubjects: subjects,
+      totalSubjects: updatedUser.SubjectsInfo.length
+    });
+    
+  } catch (error) {
+    console.error('Error adding subjects:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
 
 
 module.exports = adminRouter;

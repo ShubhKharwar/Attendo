@@ -676,5 +676,9 @@ studentRouter.get('/recommendations', auth, async (req, res) => {
   }
 });
 
+studentRouter.get('/call',async(req,res)=>{
+
+})
+
 
 module.exports = studentRouter;
