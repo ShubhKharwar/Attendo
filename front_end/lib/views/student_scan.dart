@@ -217,7 +217,7 @@ class _ScanningPageState extends State<ScanningPage> {
           if (isTeacherBeacon) {
             print(
                 '✅ Found our beacon pattern from device: ${result.device.remoteId}');
-            if (result.rssi > -70) {
+            if (result.rssi > -85) {
               print("   RSSI is strong enough: ${result.rssi}");
               if (!completer.isCompleted) {
                 completer.complete(true);
@@ -278,7 +278,7 @@ class _ScanningPageState extends State<ScanningPage> {
     }
 
     final url =
-    Uri.parse('http://10.252.6.161:3000/api/v1/student/markAttendance');
+    Uri.parse('http://192.168.0.102:3000/api/v1/student/markAttendance');
     final body = jsonEncode({
       'sessionId': _scannedSessionId,
       'subject': _scannedSubject,

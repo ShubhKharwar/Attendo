@@ -10,8 +10,9 @@ import 'dart:async';
 import 'package:intl/intl.dart';
 import 'my_courses_page.dart';
 import 'student_profile_page.dart';
+import 'analytics_page.dart';
 
-// --- Data Model (Assuming Task class exists elsewhere, including for context) ---
+// --- Data Model ---
 class Task {
   final String title;
   final TimeOfDay startTime;
@@ -32,10 +33,10 @@ class Task {
   }
 }
 
-// Define theme color for consistency
+// --- Theme Colors ---
 const Color kPrimaryColor = Color(0xFF4CAF50);
 const Color kBackgroundColor = Colors.black;
-const Color kCardColor = Color(0xFF1E1E1E); // A slightly lighter black for cards
+const Color kCardColor = Color(0xFF1E1E1E);
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -45,7 +46,6 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  // --- All original state and logic is preserved ---
   String _userName = 'Loading...';
   Task? _currentTask;
   final _storage = const FlutterSecureStorage();
@@ -77,7 +77,7 @@ class _HomeScreenState extends State<HomeScreen> {
       if (token == null) return;
 
       final String formattedDate = DateFormat('yyyy-MM-dd').format(DateTime.now());
-      final url = Uri.parse('http://10.252.6.161:3000/api/v1/student/schedule?date=$formattedDate');
+      final url = Uri.parse('http://192.168.0.102:3000/api/v1/student/schedule?date=$formattedDate');
 
       final response = await http.get(
         url,
@@ -140,7 +140,7 @@ class _HomeScreenState extends State<HomeScreen> {
         });
       }
 
-      final url = Uri.parse('http://10.252.6.161:3000/api/v1/student/profile');
+      final url = Uri.parse('http://192.168.0.102:3000/api/v1/student/profile');
       final response = await http.get(
         url,
         headers: {
@@ -173,14 +173,9 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  // --- LOGOUT LOGIC IS HERE ---
   Future<void> _logout() async {
-    // This line deletes the token, user name, and any other data you have stored.
     await _storage.deleteAll();
-
-    // This ensures the widget is still on screen before navigating.
     if (mounted) {
-      // Navigate to the login screen and remove all previous screens.
       Navigator.of(context).pushAndRemoveUntil(
         MaterialPageRoute(builder: (context) => const LoginView()),
             (Route<dynamic> route) => false,
@@ -221,6 +216,14 @@ class _HomeScreenState extends State<HomeScreen> {
                   icon: Icons.qr_code_scanner,
                   onTap: () {
                     Navigator.push(context, MaterialPageRoute(builder: (context) => const ScanningPage()));
+                  },
+                ),
+                const SizedBox(height: 12),
+                _buildActionCard(
+                  title: 'Attendance Metrics',
+                  icon: Icons.analytics_outlined,
+                  onTap: () {
+                    Navigator.push(context, MaterialPageRoute(builder: (context) => const AnalyticsPage()));
                   },
                 ),
                 const SizedBox(height: 12),
@@ -423,6 +426,14 @@ class _HomeScreenState extends State<HomeScreen> {
             },
           ),
           ListTile(
+            leading: const Icon(Icons.analytics_outlined, color: Colors.white70),
+            title: const Text('My Attendance Metrics', style: TextStyle(color: Colors.white)),
+            onTap: () {
+              Navigator.pop(context);
+              Navigator.push(context, MaterialPageRoute(builder: (context) => const AnalyticsPage()));
+            },
+          ),
+          ListTile(
             leading: const Icon(Icons.schedule, color: Colors.white70),
             title: const Text('My Schedule', style: TextStyle(color: Colors.white)),
             onTap: () {
@@ -444,7 +455,6 @@ class _HomeScreenState extends State<HomeScreen> {
             title: const Text('Log Out', style: TextStyle(color: Colors.redAccent)),
             onTap: () {
               Navigator.pop(context);
-              // This is where the logout is triggered
               _logout();
             },
           ),
@@ -453,3 +463,4 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 }
+

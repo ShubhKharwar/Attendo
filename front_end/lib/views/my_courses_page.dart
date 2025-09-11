@@ -46,7 +46,7 @@ class _MyCoursesPageState extends State<MyCoursesPage> {
       if (token == null) throw Exception('Not logged in');
 
       // 1. URL is now pointing to the /courses endpoint
-      final url = Uri.parse('http://10.252.6.161:3000/api/v1/student/courses');
+      final url = Uri.parse('http://192.168.0.102:3000/api/v1/student/courses');
       final response = await http.get(
         url,
         headers: {'Authorization': 'Bearer $token'},

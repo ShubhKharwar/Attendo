@@ -108,7 +108,7 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
 
       // Fetch the schedule for today.
       final String formattedDate = DateFormat('yyyy-MM-dd').format(DateTime.now());
-      final url = Uri.parse('http://10.252.6.161:3000/api/v1/admin/schedule?date=$formattedDate');
+      final url = Uri.parse('http://192.168.0.102:3000/api/v1/admin/schedule?date=$formattedDate');
 
       final response = await http.get(
         url,
@@ -189,7 +189,7 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
         });
       }
 
-      final url = Uri.parse('http://10.252.6.161:3000/api/v1/student/profile'); // ⚠️ Should this be /teacher/profile ?
+      final url = Uri.parse('http://192.168.0.102:3000/api/v1/student/profile'); // ⚠️ Should this be /teacher/profile ?
 
       final response = await http.get(
         url,
