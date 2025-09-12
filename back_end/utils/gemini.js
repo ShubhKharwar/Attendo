@@ -15,7 +15,7 @@ function fileToGenerativePart(buffer, mimeType) {
 }
 
 /**
- * Extracts student information from a PDF list. (This function remains unchanged)
+ * Extracts student information from a PDF list.
  */
 async function extractInfoFromPdf(pdfBuffer, mimeType) {
   try {
@@ -51,7 +51,8 @@ async function extractInfoFromPdf(pdfBuffer, mimeType) {
     const text = response.text();
     const jsonString = text.replace(/```json/g, "").replace(/```/g, "").trim();
     return JSON.parse(jsonString);
-  } catch (error) {
+  } catch (error)
+ {
     console.error("Error calling Gemini API:", error);
     throw new Error("Failed to extract information from PDF via Gemini API.");
   }
@@ -59,15 +60,11 @@ async function extractInfoFromPdf(pdfBuffer, mimeType) {
 
 /**
  * Extracts timetable information from a PDF.
- * @param {Buffer} pdfBuffer The buffer of the PDF file.
- * @param {string} mimeType The MIME type of the PDF.
- * @returns {Promise<Array<object>>} A promise resolving to an array of timetable entry objects.
  */
 async function extractTimetableFromPdf(pdfBuffer, mimeType) {
   try {
     const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
 
-    // --- CHANGED: Updated prompt to include 'teacherEmail' ---
     const prompt = `
      From the provided PDF document, which contains a class timetable, extract the schedule for each class session.
      For each session, identify the following details:
@@ -100,7 +97,8 @@ async function extractTimetableFromPdf(pdfBuffer, mimeType) {
     const text = response.text();
     const jsonString = text.replace(/```json/g, "").replace(/```/g, "").trim();
     return JSON.parse(jsonString);
-  } catch (error) {
+  } catch (error)
+ {
     console.error("Error calling Gemini API for timetable extraction:", error);
     throw new Error("Failed to extract timetable from PDF via Gemini API.");
   }
@@ -118,11 +116,16 @@ async function getChatbotResponse(query, studentContext) {
       model: "gemini-1.5-flash-latest",
     });
 
-    // Construct a detailed prompt with the student's context
+    // --- UPDATED PROMPT ---
+    // The AI is now a general assistant that uses student data for context
+    // but can answer any question.
     const prompt = `
-      You are a helpful and friendly personal academic assistant for a student.
-      Your goal is to answer the student's questions based on the information provided about them.
-      Keep your answers concise and directly related to the student's query.
+      You are a helpful and friendly personal assistant for a student.
+      Your main goal is to help with academic questions by using the student's information provided below.
+      However, you can also answer general questions about any topic.
+
+      When a question relates to the student's academic life, use the provided context to give a personalized and accurate answer.
+      For all other questions, provide a helpful and informative response.
 
       Here is the student's information:
       - Name: ${studentContext.name}
@@ -130,10 +133,6 @@ async function getChatbotResponse(query, studentContext) {
       - Class: ${studentContext.class}
       - Today's Schedule: ${JSON.stringify(studentContext.schedule, null, 2)}
       - Interests: ${studentContext.interests.join(", ") || "Not specified"}
-
-      Based on this information, please answer the following question.
-      If the question is unrelated to the provided academic context (e.g., asking about the weather, general knowledge, or personal opinions),
-      politely decline by saying something like, "I can only help with questions about your academic schedule and courses."
 
       Student's question: "${query}"
     `;
@@ -143,7 +142,8 @@ async function getChatbotResponse(query, studentContext) {
     const text = response.text();
 
     return text;
-  } catch (error) {
+  } catch (error)
+ {
     console.error("Error calling Gemini API for chatbot:", error);
     throw new Error("Failed to get a response from the chatbot assistant.");
   }
