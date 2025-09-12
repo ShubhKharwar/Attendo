@@ -67,21 +67,18 @@ class _TeacherAttendancePageState extends State<TeacherAttendancePage> {
       return;
     }
 
+    // The session ID is generated once and remains constant for the session.
     final String sessionId = _uuid.v4();
-    final Map<String, String> qrData = {
-      'sessionId': sessionId,
-      'subject': _selectedSubject!,
-    };
-    final String qrJsonString = jsonEncode(qrData);
 
+    // Start beacon
     await _beaconControl.startBeacon(beaconUuid, major, minor);
     if (!mounted) return;
 
+    // Navigate to the page that will display the dynamic QR code.
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => StopAttendancePage(
-          qrData: qrJsonString,
           subject: _selectedSubject!,
           sessionId: sessionId,
         ),
@@ -256,21 +253,63 @@ class _TeacherAttendancePageState extends State<TeacherAttendancePage> {
   }
 }
 
-// --- Second Page: Stop Attendance ---
+// --- UPDATED: Stop Attendance Page is now a StatefulWidget ---
 
-class StopAttendancePage extends StatelessWidget {
-  final String qrData;
+class StopAttendancePage extends StatefulWidget {
   final String subject;
   final String sessionId;
 
   const StopAttendancePage({
     Key? key,
-    required this.qrData,
     required this.subject,
     required this.sessionId,
   }) : super(key: key);
 
+  @override
+  State<StopAttendancePage> createState() => _StopAttendancePageState();
+}
+
+class _StopAttendancePageState extends State<StopAttendancePage> {
+  Timer? _qrTimer;
+  String _currentQrData = '';
+
+  @override
+  void initState() {
+    super.initState();
+    // Generate the first QR code immediately
+    _generateQrData();
+    // Set a timer to regenerate the QR code every 5 seconds
+    _qrTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
+      _generateQrData();
+    });
+  }
+
+  @override
+  void dispose() {
+    // IMPORTANT: Cancel the timer when the widget is disposed to prevent memory leaks
+    _qrTimer?.cancel();
+    super.dispose();
+  }
+
+  // --- NEW: Method to generate the dynamic QR data ---
+  void _generateQrData() {
+    // The payload now includes a timestamp that changes every time this is called.
+    final Map<String, dynamic> qrData = {
+      'sessionId': widget.sessionId,
+      'subject': widget.subject,
+      'timestamp': DateTime.now().millisecondsSinceEpoch,
+    };
+
+    // Update the state to rebuild the widget with the new QR code string.
+    setState(() {
+      _currentQrData = jsonEncode(qrData);
+    });
+    print("Generated new QR data: $_currentQrData");
+  }
+
   Future<void> _onStopAttendance(BuildContext context) async {
+    // Cancel the timer before stopping the beacon
+    _qrTimer?.cancel();
     final beaconControl = BeaconControl();
     await beaconControl.stopBeacon();
     if (context.mounted) Navigator.pop(context);
@@ -305,7 +344,6 @@ class StopAttendancePage extends StatelessWidget {
   }
 
   Widget _buildTopBar(BuildContext context) {
-    // When the user presses back, the session should stop.
     return Row(
       children: [
         IconButton(
@@ -313,11 +351,11 @@ class StopAttendancePage extends StatelessWidget {
           onPressed: () => _onStopAttendance(context),
         ),
         Expanded(
-          child: Text("Active: $subject",
+          child: Text("Active: ${widget.subject}",
               textAlign: TextAlign.center,
               style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
         ),
-        const SizedBox(width: 40), // Balance the back button
+        const SizedBox(width: 40),
       ],
     );
   }
@@ -333,16 +371,15 @@ class StopAttendancePage extends StatelessWidget {
       ),
       child: Column(
         children: [
-          Text('Session Active',
-              style: TextStyle(color: Colors.grey[300], fontSize: 16)),
+          Text('Session Active', style: TextStyle(color: Colors.grey[300], fontSize: 16)),
           const SizedBox(height: 8),
-          Text(subject,
+          Text(widget.subject,
               style: const TextStyle(
                   color: kPrimaryColor,
                   fontSize: 24,
                   fontWeight: FontWeight.bold)),
           const SizedBox(height: 4),
-          Text('ID: ${sessionId.substring(0, 8)}...',
+          Text('ID: ${widget.sessionId.substring(0, 8)}...',
               style: TextStyle(color: Colors.grey[400], fontSize: 12)),
         ],
       ),
@@ -354,8 +391,14 @@ class StopAttendancePage extends StatelessWidget {
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
           color: Colors.white, borderRadius: BorderRadius.circular(16)),
-      child: QrImageView(
-        data: qrData,
+      child: _currentQrData.isEmpty
+          ? const SizedBox(
+        width: 220,
+        height: 220,
+        child: Center(child: CircularProgressIndicator()),
+      )
+          : QrImageView(
+        data: _currentQrData, // Use the state variable
         version: QrVersions.auto,
         size: 220.0,
         backgroundColor: Colors.white,
@@ -382,3 +425,4 @@ class StopAttendancePage extends StatelessWidget {
     );
   }
 }
+

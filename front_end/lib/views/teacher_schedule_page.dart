@@ -109,7 +109,7 @@ class _TeacherSchedulePageState extends State<TeacherSchedulePage> {
       // 2. Format the date and construct the URL
       // IMPORTANT: Replace 'YOUR_SERVER_IP:PORT' with your actual server address
       final String formattedDate = DateFormat('yyyy-MM-dd').format(date);
-      final url = Uri.parse('http://192.168.0.102:3000/api/v1/admin/schedule?date=$formattedDate');
+      final url = Uri.parse('http://192.168.0.105:3000/api/v1/admin/schedule?date=$formattedDate');
 
       // 3. Make the authenticated GET request
       final response = await http.get(

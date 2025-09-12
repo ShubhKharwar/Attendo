@@ -11,6 +11,7 @@ import 'package:intl/intl.dart';
 import 'my_courses_page.dart';
 import 'student_profile_page.dart';
 import 'analytics_page.dart';
+import 'chatbot_fab.dart';
 
 // --- Data Model ---
 class Task {
@@ -77,7 +78,7 @@ class _HomeScreenState extends State<HomeScreen> {
       if (token == null) return;
 
       final String formattedDate = DateFormat('yyyy-MM-dd').format(DateTime.now());
-      final url = Uri.parse('http://192.168.0.102:3000/api/v1/student/schedule?date=$formattedDate');
+      final url = Uri.parse('http://192.168.0.105:3000/api/v1/student/schedule?date=$formattedDate');
 
       final response = await http.get(
         url,
@@ -140,7 +141,7 @@ class _HomeScreenState extends State<HomeScreen> {
         });
       }
 
-      final url = Uri.parse('http://192.168.0.102:3000/api/v1/student/profile');
+      final url = Uri.parse('http://192.168.0.105:3000/api/v1/student/profile');
       final response = await http.get(
         url,
         headers: {
@@ -185,61 +186,73 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: kBackgroundColor,
-      drawer: _buildAppDrawer(),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const ScanningPage())),
-        backgroundColor: kPrimaryColor,
-        child: const Icon(Icons.qr_code_scanner, color: Colors.white, size: 30),
-      ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
-      bottomNavigationBar: _buildBottomAppBar(),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const SizedBox(height: 16),
-                _buildTopBar(),
-                const SizedBox(height: 30),
-                _buildGreeting(),
-                const SizedBox(height: 30),
-                _buildCurrentTaskCard(),
-                const SizedBox(height: 30),
-                _buildSectionHeader("Actions"),
-                const SizedBox(height: 16),
-                _buildActionCard(
-                  title: 'Mark Attendance',
-                  icon: Icons.qr_code_scanner,
-                  onTap: () {
-                    Navigator.push(context, MaterialPageRoute(builder: (context) => const ScanningPage()));
-                  },
+    return Stack(
+      children: [
+        Scaffold(
+          resizeToAvoidBottomInset: false,
+          backgroundColor: kBackgroundColor,
+          drawer: _buildAppDrawer(),
+          floatingActionButton: FloatingActionButton(
+            heroTag: 'scan_fab',
+            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const ScanningPage())),
+            backgroundColor: kPrimaryColor,
+            child: const Icon(Icons.qr_code_scanner, color: Colors.white, size: 30),
+          ),
+          floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
+          bottomNavigationBar: _buildBottomAppBar(),
+          body: SafeArea(
+            child: SingleChildScrollView(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const SizedBox(height: 16),
+                    _buildTopBar(),
+                    const SizedBox(height: 30),
+                    _buildGreeting(),
+                    const SizedBox(height: 30),
+                    _buildCurrentTaskCard(),
+                    const SizedBox(height: 30),
+                    _buildSectionHeader("Actions"),
+                    const SizedBox(height: 16),
+                    _buildActionCard(
+                      title: 'Mark Attendance',
+                      icon: Icons.qr_code_scanner,
+                      onTap: () {
+                        Navigator.push(context, MaterialPageRoute(builder: (context) => const ScanningPage()));
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    _buildActionCard(
+                      title: 'Attendance Metrics',
+                      icon: Icons.analytics_outlined,
+                      onTap: () {
+                        Navigator.push(context, MaterialPageRoute(builder: (context) => const AnalyticsPage()));
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    _buildActionCard(
+                      title: 'View Leaderboard',
+                      icon: Icons.leaderboard,
+                      onTap: () {
+                        Navigator.push(context, MaterialPageRoute(builder: (context) => const LeaderboardPage()));
+                      },
+                    ),
+                    const SizedBox(height: 20),
+                  ],
                 ),
-                const SizedBox(height: 12),
-                _buildActionCard(
-                  title: 'Attendance Metrics',
-                  icon: Icons.analytics_outlined,
-                  onTap: () {
-                    Navigator.push(context, MaterialPageRoute(builder: (context) => const AnalyticsPage()));
-                  },
-                ),
-                const SizedBox(height: 12),
-                _buildActionCard(
-                  title: 'View Leaderboard',
-                  icon: Icons.leaderboard,
-                  onTap: () {
-                    Navigator.push(context, MaterialPageRoute(builder: (context) => const LeaderboardPage()));
-                  },
-                ),
-                const SizedBox(height: 20),
-              ],
+              ),
             ),
           ),
         ),
-      ),
+        // --- POSITIONING HAS BEEN UPDATED HERE ---
+        const Positioned(
+          bottom: 110, // Moved up
+          right: 25,   // Moved left
+          child: ChatbotFab(),
+        ),
+      ],
     );
   }
 

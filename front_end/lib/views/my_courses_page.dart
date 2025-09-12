@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'dart:convert';
+import 'roadmap.dart'; // Import the roadmap screen
 
 // --- MODIFIED: The fromJson factory is no longer needed ---
 class Course {
@@ -46,7 +47,7 @@ class _MyCoursesPageState extends State<MyCoursesPage> {
       if (token == null) throw Exception('Not logged in');
 
       // 1. URL is now pointing to the /courses endpoint
-      final url = Uri.parse('http://192.168.0.102:3000/api/v1/student/courses');
+      final url = Uri.parse('http://192.168.0.105:3000/api/v1/student/courses');
       final response = await http.get(
         url,
         headers: {'Authorization': 'Bearer $token'},
@@ -198,7 +199,21 @@ class _MyCoursesPageState extends State<MyCoursesPage> {
                   children: [
                     Expanded(
                       child: OutlinedButton(
-                        onPressed: () { /* TODO: Handle Roadmap */ },
+                        onPressed: () {
+                          // Only navigate for CS 101 as requested
+                          if (course.subjectCode == 'CS101') {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(builder: (context) => const RoadmapScreen()),
+                            );
+                          }
+                          // Optionally, show a message for other courses
+                          else {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('Roadmap not available for this course yet.'))
+                            );
+                          }
+                        },
                         style: OutlinedButton.styleFrom(
                             foregroundColor: Colors.white,
                             side: const BorderSide(color: Colors.grey),

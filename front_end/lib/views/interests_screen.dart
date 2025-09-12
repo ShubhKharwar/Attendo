@@ -84,7 +84,7 @@ class _InterestsScreenState extends State<InterestsScreen> {
       final selectedInterestsList = _selectedInterests.toList();
 
       // Make sure to replace this with your actual backend URL.
-      final url = Uri.parse('http://192.168.0.102:3000/api/v1/student/interests');
+      final url = Uri.parse('http://192.168.0.105:3000/api/v1/student/interests');
 
       final body = json.encode({
         'rollNo': rollNo,
